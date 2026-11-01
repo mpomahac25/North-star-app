@@ -1,14 +1,17 @@
 {
-  "name": "movies",
-  "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "name": "rio-theaters-movies",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Rio Theaters movies API",
+  "main": "movieService.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "node --watch --env-file-if-exists=../../.env movieService.js",
+    "start": "node --env-file-if-exists=../../.env movieService.js",
+    "test": "node --test"
   },
   "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "Apache-2.0",
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
