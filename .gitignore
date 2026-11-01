@@ -10,6 +10,9 @@
 *.userosscache
 *.sln.docstates
 *.env
+.env
+.env.*
+!.env.example
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
@@ -426,3 +429,38 @@ FodyWeavers.xsd
 
 # Official VS Code C# Dev Kit Extension exclusion
 #*.lscache
+
+# VS Code: ignore all personal workspace and editor configuration
+.vscode/
+.vscode-test/
+*.code-workspace
+
+# Node.js, pnpm, Vite and React (all monorepo components)
+node_modules/
+dist/
+dist-ssr/
+coverage/
+build/
+.pnpm-store/
+.vite/
+.eslintcache
+*.tsbuildinfo
+*.local
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Other editors and operating systems
+.idea/
+.fleet/
+.cursor/
+.windsurf/
+.zed/
+*.sublime-workspace
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.sw?
+*.ntvs*

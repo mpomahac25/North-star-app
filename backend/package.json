@@ -1,0 +1,27 @@
+{
+  "name": "rio-theaters-backend",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Rio Theaters backend API",
+  "main": "server.js",
+  "scripts": {
+    "dev": "node --watch --env-file-if-exists=../.env server.js",
+    "start": "node --env-file-if-exists=../.env server.js",
+    "test": "node --test"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "Apache-2.0",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.16.1",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@12.16.1",
+  "type": "module",
+  "dependencies": {
+    "express": "^5.3.0"
+  }
+}
