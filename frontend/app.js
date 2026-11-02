@@ -4,6 +4,24 @@ import { createProxyMiddleware } from 'http-proxy-middleware';
 export function createApp(backendUrl) {
     const app = express();
 
+    // MUST BE KEPT HERE BEFORE PROXY!!!
+    app.get('/api/live', (req, res) => {
+        res.json({
+            status: 'alive',
+            service: 'frontend'
+        });
+    });
+
+    // Needed for negative test
+    // MUST BE KEPT HERE BEFORE PROXY!!!
+    app.all('/api/live', (req, res) => {
+        res.set('Allow', 'GET, HEAD');
+
+        res.status(405).json({
+            error: 'Method not allowed'
+        });
+    });
+
     const apiProxy = createProxyMiddleware({
         target: backendUrl,
         changeOrigin: true,
