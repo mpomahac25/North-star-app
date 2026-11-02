@@ -87,7 +87,4 @@ CREATE TABLE reservations (
 
 -- PREVENT DOUBLE BOOKING
 CREATE UNIQUE INDEX unique_active_seat
-ON reservations (screening_id, seat_row, seat_number)
-WHERE status_id = (
-    SELECT id FROM reservation_statuses WHERE name = 'active'
-);
+ON reservations (screening_id, seat_row, seat_number);
