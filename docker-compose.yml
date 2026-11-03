@@ -144,11 +144,11 @@ services:
       context: ./services/movies
 
     ports:
-      - "127.0.0.1:${MOVIES_PORT:-3005}:${MOVIES_PORT:-3005}"
+      - "127.0.0.1:${MOVIES_API_PORT:-3005}:${MOVIES_API_PORT:-3005}"
 
     environment:
       <<: *db-environment
-      MOVIES_API_PORT: ${MOVIES_PORT:-3005}
+      MOVIES_API_PORT: ${MOVIES_API_PORT:-3005}
 
     # Wait until the database is healthy before starting
     depends_on:
