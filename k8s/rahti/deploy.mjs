@@ -185,7 +185,7 @@ function createDeployment(component) {
                                     memory: '128Mi'
                                 },
                                 limits: {
-                                    cpu: '500m',
+                                    cpu: '400m',
                                     memory: '512Mi'
                                 }
                             },
