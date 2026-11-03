@@ -464,3 +464,8 @@ Thumbs.db
 Desktop.ini
 *.sw?
 *.ntvs*
+
+# Playwright
+playwright-report/
+test-results/
+blob-report/

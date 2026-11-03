@@ -1,0 +1,15 @@
+## Changes
+
+Briefly describe what was changed.
+
+## Testing
+
+Describe how the changes were tested.
+
+## Related issues
+
+Link relevant GitHub issues (if applicable).
+
+## Additional notes
+
+Anything reviewers should know.
