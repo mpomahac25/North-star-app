@@ -38,7 +38,7 @@ services:
 
   # Frontend configuration
   frontend:
-    image: rio-theaters-frontend:${FRONTEND_VERSION:?FRONTEND_VERSION is required}
+    image: docker.io/${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}/rio-theaters-frontend:${FRONTEND_VERSION:?FRONTEND_VERSION is required}
 
     build:
       context: ./frontend
@@ -58,7 +58,7 @@ services:
 
   # Main backend API
   backend:
-    image: rio-theaters-backend:${BACKEND_VERSION:?BACKEND_VERSION is required}
+    image: docker.io/${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}/rio-theaters-backend:${BACKEND_VERSION:?BACKEND_VERSION is required}
 
     build:
       context: ./backend
@@ -78,7 +78,7 @@ services:
 
   # Booking microservice
   booking:
-    image: rio-theaters-booking:${BOOKING_VERSION:?BOOKING_VERSION is required}
+    image: docker.io/${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}/rio-theaters-booking:${BOOKING_VERSION:?BOOKING_VERSION is required}
 
     build:
       context: ./services/booking
@@ -98,7 +98,7 @@ services:
 
   # Login microservice
   login:
-    image: rio-theaters-login:${LOGIN_VERSION:?LOGIN_VERSION is required}
+    image: docker.io/${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}/rio-theaters-login:${LOGIN_VERSION:?LOGIN_VERSION is required}
 
     build:
       context: ./services/login
@@ -118,7 +118,7 @@ services:
 
   # Payment microservice
   payment:
-    image: rio-theaters-payment:${PAYMENT_VERSION:?PAYMENT_VERSION is required}
+    image: docker.io/${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}/rio-theaters-payment:${PAYMENT_VERSION:?PAYMENT_VERSION is required}
 
     build:
       context: ./services/payment
@@ -138,7 +138,7 @@ services:
 
   # Movies microservice
   movies:
-    image: rio-theaters-movies:${MOVIES_VERSION:?MOVIES_VERSION is required}
+    image: docker.io/${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}/rio-theaters-movies:${MOVIES_VERSION:?MOVIES_VERSION is required}
 
     build:
       context: ./services/movies
