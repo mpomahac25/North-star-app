@@ -1,10 +1,12 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import HomePage from "./pages/HomePage";
+import TopNav from "./components/layout/TopNav";
 import BottomNav from "./components/layout/BottomNav";
 
 export default function App() {
     return (
         <Router>
+            <TopNav />
             <main>
                 <Routes>
                     <Route path="/" element={<HomePage />} />

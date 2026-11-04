@@ -8,7 +8,8 @@
     --gold-warm: #ffc107;
     --text-main: #f4f4f4;
     --text-muted: #afafaf;
-    /* Ahora usamos la fuente Poppins, igual a Figma */
+    --text-muted-dark: #696d74;
+    --search-bg: #222228;
     --sans-font: "Poppins", system-ui, -apple-system, sans-serif;
 }
 
@@ -24,13 +25,11 @@ body {
     font-family: var(--sans-font);
     -webkit-font-smoothing: antialiased;
     min-height: 100vh;
-    display: flex;
-    justify-content: center;
+    width: 100%;
 }
 
 #root {
     width: 100%;
-    max-width: 480px;
     min-height: 100vh;
     background-color: var(--bg-main);
     position: relative;
@@ -40,4 +39,5 @@ body {
 
 main {
     flex: 1;
+    width: 100%;
 }

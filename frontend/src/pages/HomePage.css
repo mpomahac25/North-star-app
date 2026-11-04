@@ -1,28 +1,23 @@
-:root {
-    --text-muted-dark: #696d74; /* Color for the pin and distance */
-    --search-bg: #222228; 
-}
-
 .home-container {
-    padding: 32px 20px 90px 20px; 
+    width: 100%;
+    max-width: 100%;
+    padding: 24px 20px 90px 20px;
     display: flex;
     flex-direction: column;
-    gap: 28px; 
+    gap: 24px;
     background-color: var(--bg-main);
     text-align: left;
 }
 
-/* Header */
+.desktop-only {
+    display: none !important;
+}
+
+/* Mobile Header */
 .home-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-}
-
-.header-text {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
 }
 
 .greeting {
@@ -33,7 +28,7 @@
 
 .username {
     font-size: 22px;
-    font-weight: 600; 
+    font-weight: 600;
     color: var(--text-main);
     margin: 0;
     letter-spacing: 0.5px;
@@ -42,7 +37,7 @@
 .avatar {
     width: 48px;
     height: 48px;
-    border-radius: 8px; 
+    border-radius: 8px;
     overflow: hidden;
     background-color: var(--bg-card-border);
 }
@@ -55,13 +50,13 @@
 
 /* Search Bar */
 .search-bar {
-    background-color: var(--search-bg); 
+    background-color: var(--search-bg);
     border-radius: 12px;
     display: flex;
     align-items: center;
-    padding: 14px 18px; 
+    padding: 14px 18px;
     gap: 12px;
-    border: 1px solid var(--bg-card-border); 
+    border: 1px solid var(--bg-card-border);
 }
 
 .search-icon {
@@ -82,7 +77,7 @@
     font-weight: 400;
 }
 
-/* Section Titles */
+/* Section Header */
 .section-title {
     font-size: 19px;
     font-weight: 600;
@@ -93,7 +88,7 @@
 .section-header {
     display: flex;
     justify-content: space-between;
-    align-items: flex-end; 
+    align-items: center;
     margin-bottom: 16px;
 }
 
@@ -102,6 +97,23 @@
     color: var(--gold-warm);
     cursor: pointer;
     font-weight: 500;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.btn-explore-top {
+    background-color: var(--red-velvet);
+    color: var(--text-main);
+    border: none;
+    border-radius: 8px;
+    padding: 10px 18px;
+    font-weight: 600;
+    font-size: 13px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
 }
 
 /* Coming Soon Carousel */
@@ -111,7 +123,6 @@
     overflow-x: auto;
     scroll-snap-type: x mandatory;
     padding-bottom: 8px;
-    margin-top: 16px;
     scrollbar-width: none;
 }
 
@@ -120,24 +131,20 @@
 }
 
 .movie-card-coming {
-    flex: 0 0 88%; 
+    flex: 0 0 88%;
     scroll-snap-align: start;
     display: flex;
     flex-direction: column;
     gap: 8px;
-}
-
-.movie-card-coming.secondary-peek {
-    flex: 0 0 40%;
-    opacity: 0.5; 
+    min-width: 0;
 }
 
 .poster-wrapper {
     width: 100%;
     border-radius: 12px;
     overflow: hidden;
-    aspect-ratio: 16 / 9; 
-    background-color: var(--bg-card); 
+    aspect-ratio: 16 / 9;
+    background-color: var(--bg-card);
 }
 
 .poster-img {
@@ -147,8 +154,19 @@
     display: block;
 }
 
+.movie-card-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    min-width: 0;
+}
+
+.movie-card-footer > div {
+    min-width: 0;
+}
+
 .movie-title {
-    font-size: 20px; 
+    font-size: 18px;
     font-weight: 600;
     color: var(--text-main);
     margin: 4px 0 0 0;
@@ -158,23 +176,9 @@
 }
 
 .release-date {
-    font-size: 14px;
+    font-size: 13px;
     color: var(--gold-warm);
-    font-weight: 500; 
-}
-
-.btn-explore {
-    background-color: var(--red-velvet);
-    color: var(--text-main);
-    border: none;
-    border-radius: 10px; 
-    padding: 16px; 
-    font-weight: 600;
-    font-size: 15px;
-    cursor: pointer;
-    margin-top: 8px;
-    width: 100%;
-    letter-spacing: 0.5px;
+    font-weight: 500;
 }
 
 /* Cinema Cards */
@@ -190,13 +194,13 @@
     padding: 14px 16px;
     display: flex;
     align-items: center;
-    gap: 16px; 
-    border: 1px solid transparent; 
+    gap: 16px;
+    min-width: 0;
 }
 
 .cinema-logo {
-    width: 60px; 
-    height: 60px;
+    width: 52px;
+    height: 52px;
     border-radius: 10px;
     background: #ffffff;
     display: flex;
@@ -206,13 +210,10 @@
     overflow: hidden;
 }
 
-.placeholder-logo {
-    color: var(--red-velvet);
-    font-weight: 900;
-    font-size: 18px;
-    border: 2px solid var(--gold-warm);
-    padding: 4px 6px;
-    border-radius: 4px;
+.real-logo-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
 }
 
 .cinema-info {
@@ -220,6 +221,7 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
+    min-width: 0;
 }
 
 .cinema-location-info {
@@ -239,12 +241,23 @@
     font-weight: 600;
     color: var(--text-main);
     margin: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .cinema-status {
     font-size: 12px;
     color: var(--text-muted);
     margin: 0;
+}
+
+.cinema-card-right {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 12px;
+    flex-shrink: 0;
 }
 
 .cinema-rating {
@@ -254,4 +267,50 @@
     font-size: 13px;
     font-weight: 500;
     color: var(--text-main);
+}
+
+.card-arrow {
+    color: var(--text-muted-dark);
+}
+
+/* Desktop Styles (Screen widths >= 768px) */
+@media (min-width: 768px) {
+    .mobile-only {
+        display: none !important;
+    }
+
+    .desktop-only {
+        display: flex !important;
+    }
+
+    .home-container {
+        padding: 32px 48px 60px 48px;
+        gap: 32px;
+        width: 100%;
+        max-width: 1400px;
+        margin: 0 auto;
+    }
+
+    .desktop-greeting {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+
+    .coming-soon-carousel {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 24px;
+        overflow-x: visible;
+    }
+
+    .movie-card-coming {
+        flex: none;
+    }
+
+    .cinema-list {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 20px;
+    }
 }
