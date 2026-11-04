@@ -1,12 +1,28 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { Search, MapPin, Star, ArrowUpRight } from "lucide-react";
 import spidermanImg from "../assets/spiderman.jpg";
 import rioLogo from "../assets/rio-logo.png";
 import "./HomePage.css";
 
 export default function HomePage() {
+    const [searchTerm, setSearchTerm] = useState("");
+    const navigate = useNavigate();
+
+    const handleSearch = (e) => {
+        if (e.key === "Enter" || e.type === "click") {
+            // Removes extra spaces and converts the text to lowercase
+            const cleanedSearch = searchTerm.trim().toLowerCase();
+
+            if (cleanedSearch) {
+                navigate(`/explore?search=${cleanedSearch}`);
+            }
+        }
+    };
+
     return (
         <div className="home-container">
-            {/* Mobile-only header elements */}
+            {/* Mobile Header */}
             <header className="home-header mobile-only">
                 <div className="header-text">
                     <span className="greeting">Welcome Back,</span>
@@ -17,27 +33,40 @@ export default function HomePage() {
                 </div>
             </header>
 
-            {/* Mobile-only search bar */}
+            {/* Mobile Search Bar */}
             <div className="search-bar mobile-only">
-                <Search size={18} className="search-icon" />
-                <input type="text" placeholder="Search your favourite movie" readOnly />
+                <Search
+                    size={18}
+                    className="search-icon"
+                    onClick={handleSearch}
+                    style={{ cursor: "pointer" }}
+                />
+                <input
+                    type="text"
+                    placeholder="Search your favourite movie"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onKeyDown={handleSearch}
+                />
             </div>
 
-            {/* Desktop-only greeting */}
+            {/* Desktop Greeting */}
             <div className="desktop-greeting desktop-only">
                 <span className="greeting">Welcome Back,</span>
                 <h1 className="username">Kakaroto</h1>
             </div>
 
-            {/* Section: Coming Soon */}
+            {/* Coming Soon Section */}
             <section className="section-coming-soon">
                 <div className="section-header">
                     <h2 className="section-title">Coming Soon</h2>
-                    <button className="btn-explore-top">
+                    {/* Explore button for desktop */}
+                    <button className="btn-explore-top" onClick={() => navigate("/explore")}>
                         Explore movies <ArrowUpRight size={16} />
                     </button>
                 </div>
 
+                {/* Keep only two sample movies, as decided in the meeting */}
                 <div className="coming-soon-carousel">
                     <div className="movie-card-coming">
                         <div className="poster-wrapper">
@@ -75,7 +104,7 @@ export default function HomePage() {
                 </div>
             </section>
 
-            {/* Section: Rio Movie Theaters */}
+            {/* Rio Movie Theaters Section */}
             <section className="section-cinemas">
                 <div className="section-header">
                     <h2 className="section-title">Rio Movie Theaters</h2>

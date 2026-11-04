@@ -1,9 +1,25 @@
+import { useState } from "react";
 import { Search, ShoppingCart, ChevronDown } from "lucide-react";
-import { NavLink } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import rioLogo from "../../assets/rio-logo.png";
 import "./TopNav.css";
 
 export default function TopNav() {
+    const [searchTerm, setSearchTerm] = useState("");
+    const navigate = useNavigate();
+
+    // This function runs when Enter is pressed or the search icon is clicked
+    const handleSearch = (e) => {
+        if (e.key === "Enter" || e.type === "click") {
+            // Removes extra spaces and converts the text to lowercase
+            const cleanedSearch = searchTerm.trim().toLowerCase();
+
+            if (cleanedSearch) {
+                navigate(`/explore?search=${cleanedSearch}`);
+            }
+        }
+    };
+
     return (
         <header className="top-nav">
             <div className="top-nav-left">
@@ -27,8 +43,19 @@ export default function TopNav() {
             </div>
 
             <div className="top-nav-search">
-                <Search size={16} className="search-icon" />
-                <input type="text" placeholder="Search your favourite movie" readOnly />
+                <Search
+                    size={16}
+                    className="search-icon"
+                    onClick={handleSearch}
+                    style={{ cursor: "pointer" }}
+                />
+                <input
+                    type="text"
+                    placeholder="Search your favourite movie"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    onKeyDown={handleSearch}
+                />
             </div>
 
             <div className="top-nav-right">
