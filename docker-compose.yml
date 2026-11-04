@@ -1,0 +1,161 @@
+# Shared database connection settings for application containers
+x-db-environment: &db-environment
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  DB_NAME: ${POSTGRES_DB:-rio_theaters}
+  DB_USER: ${POSTGRES_USER:-rio}
+  DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env file}
+
+services:
+
+  # Postgres DB
+  postgres:
+    image: postgres:17-alpine
+
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-rio_theaters}
+      POSTGRES_USER: ${POSTGRES_USER:-rio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env file}
+
+    # Initialize the database from schema.sql on first startup
+    # Store database files in a persistent Docker volume
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+
+    # Expose PostgreSQL only to the local host
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
+
+    # Simple periodic health check
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+
+  # Frontend configuration
+  frontend:
+    image: docker.io/${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}/rio-theaters-frontend:${FRONTEND_VERSION:?FRONTEND_VERSION is required}
+
+    build:
+      context: ./frontend
+
+    ports:
+      - "127.0.0.1:${FRONTEND_PORT:-3000}:${FRONTEND_PORT:-3000}"
+
+    environment:
+      FRONTEND_PORT: ${FRONTEND_PORT:-3000}
+      BACKEND_URL: http://backend:${BACKEND_PORT:-3001}
+
+    # Wait until the backend is healthy before starting
+    depends_on:
+      backend:
+        condition: service_healthy
+
+
+  # Main backend API
+  backend:
+    image: docker.io/${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}/rio-theaters-backend:${BACKEND_VERSION:?BACKEND_VERSION is required}
+
+    build:
+      context: ./backend
+
+    ports:
+      - "127.0.0.1:${BACKEND_PORT:-3001}:${BACKEND_PORT:-3001}"
+
+    environment:
+      <<: *db-environment
+      BACKEND_PORT: ${BACKEND_PORT:-3001}
+
+    # Wait until the database is healthy before starting
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+
+  # Booking microservice
+  booking:
+    image: docker.io/${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}/rio-theaters-booking:${BOOKING_VERSION:?BOOKING_VERSION is required}
+
+    build:
+      context: ./services/booking
+
+    ports:
+      - "127.0.0.1:${BOOKING_PORT:-3002}:${BOOKING_PORT:-3002}"
+
+    environment:
+      <<: *db-environment
+      BOOKING_PORT: ${BOOKING_PORT:-3002}
+
+    # Wait until the database is healthy before starting
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+
+  # Login microservice
+  login:
+    image: docker.io/${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}/rio-theaters-login:${LOGIN_VERSION:?LOGIN_VERSION is required}
+
+    build:
+      context: ./services/login
+
+    ports:
+      - "127.0.0.1:${LOGIN_PORT:-3003}:${LOGIN_PORT:-3003}"
+
+    environment:
+      <<: *db-environment
+      LOGIN_PORT: ${LOGIN_PORT:-3003}
+
+    # Wait until the database is healthy before starting
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+
+  # Payment microservice
+  payment:
+    image: docker.io/${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}/rio-theaters-payment:${PAYMENT_VERSION:?PAYMENT_VERSION is required}
+
+    build:
+      context: ./services/payment
+
+    ports:
+      - "127.0.0.1:${PAYMENT_PORT:-3004}:${PAYMENT_PORT:-3004}"
+
+    environment:
+      <<: *db-environment
+      PAYMENT_PORT: ${PAYMENT_PORT:-3004}
+
+    # Wait until the database is healthy before starting
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+
+  # Movies microservice
+  movies:
+    image: docker.io/${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}/rio-theaters-movies:${MOVIES_VERSION:?MOVIES_VERSION is required}
+
+    build:
+      context: ./services/movies
+
+    ports:
+      - "127.0.0.1:${MOVIES_API_PORT:-3005}:${MOVIES_API_PORT:-3005}"
+
+    environment:
+      <<: *db-environment
+      MOVIES_API_PORT: ${MOVIES_API_PORT:-3005}
+
+    # Wait until the database is healthy before starting
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+
+# Persistent database storage
+volumes:
+  postgres_data:

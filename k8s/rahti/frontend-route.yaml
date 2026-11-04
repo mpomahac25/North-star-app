@@ -1,0 +1,19 @@
+apiVersion: route.openshift.io/v1
+kind: Route
+
+metadata:
+  name: frontend
+
+spec:
+  host: rio-theaters.2.rahtiapp.fi
+
+  to:
+    kind: Service
+    name: frontend
+
+  port:
+    targetPort: http
+
+  tls:
+    termination: edge
+    insecureEdgeTerminationPolicy: Redirect
