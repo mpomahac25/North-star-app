@@ -1,9 +1,14 @@
+:root {
+    --text-muted-dark: #696d74; /* Color for the pin and distance */
+    --search-bg: #222228; 
+}
+
 .home-container {
-    padding: 24px 20px 80px 20px;
+    padding: 32px 20px 90px 20px; 
     display: flex;
     flex-direction: column;
-    gap: 20px;
-    background-color: #121212;
+    gap: 28px; 
+    background-color: var(--bg-main);
     text-align: left;
 }
 
@@ -14,25 +19,32 @@
     align-items: center;
 }
 
+.header-text {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
 .greeting {
-    font-size: 13px;
-    color: #a0a0a0;
-    display: block;
+    font-size: 14px;
+    color: var(--text-muted);
+    font-weight: 400;
 }
 
 .username {
-    font-size: 20px;
-    font-weight: 700;
-    color: #ffffff;
-    margin: 2px 0 0 0;
+    font-size: 22px;
+    font-weight: 600; 
+    color: var(--text-main);
+    margin: 0;
+    letter-spacing: 0.5px;
 }
 
 .avatar {
-    width: 44px;
-    height: 44px;
-    border-radius: 12px;
+    width: 48px;
+    height: 48px;
+    border-radius: 8px; 
     overflow: hidden;
-    background-color: #2a2a32;
+    background-color: var(--bg-card-border);
 }
 
 .avatar img {
@@ -43,65 +55,89 @@
 
 /* Search Bar */
 .search-bar {
-    background-color: #1e1e24;
+    background-color: var(--search-bg); 
     border-radius: 12px;
     display: flex;
     align-items: center;
-    padding: 12px 16px;
-    gap: 10px;
+    padding: 14px 18px; 
+    gap: 12px;
+    border: 1px solid var(--bg-card-border); 
 }
 
 .search-icon {
-    color: #6c6c75;
+    color: var(--text-muted-dark);
 }
 
 .search-bar input {
     background: transparent;
     border: none;
     outline: none;
-    color: #ffffff;
-    font-size: 13px;
+    color: var(--text-main);
+    font-size: 14px;
     width: 100%;
 }
 
 .search-bar input::placeholder {
-    color: #6c6c75;
+    color: var(--text-muted-dark);
+    font-weight: 400;
 }
 
 /* Section Titles */
 .section-title {
-    font-size: 18px;
-    font-weight: 700;
-    color: #ffffff;
+    font-size: 19px;
+    font-weight: 600;
+    color: var(--text-main);
     margin: 0;
 }
 
 .section-header {
     display: flex;
     justify-content: space-between;
-    align-items: center;
-    margin-bottom: 12px;
+    align-items: flex-end; 
+    margin-bottom: 16px;
 }
 
 .see-details {
-    font-size: 12px;
-    color: #6c6c75;
+    font-size: 13px;
+    color: var(--gold-warm);
     cursor: pointer;
+    font-weight: 500;
 }
 
-/* Coming Soon Movie Card */
+/* Coming Soon Carousel */
+.coming-soon-carousel {
+    display: flex;
+    gap: 16px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    padding-bottom: 8px;
+    margin-top: 16px;
+    scrollbar-width: none;
+}
+
+.coming-soon-carousel::-webkit-scrollbar {
+    display: none;
+}
+
 .movie-card-coming {
+    flex: 0 0 88%; 
+    scroll-snap-align: start;
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    margin-top: 12px;
+    gap: 8px;
+}
+
+.movie-card-coming.secondary-peek {
+    flex: 0 0 40%;
+    opacity: 0.5; 
 }
 
 .poster-wrapper {
     width: 100%;
-    border-radius: 16px;
+    border-radius: 12px;
     overflow: hidden;
-    max-height: 220px;
+    aspect-ratio: 16 / 9; 
+    background-color: var(--bg-card); 
 }
 
 .poster-img {
@@ -112,94 +148,110 @@
 }
 
 .movie-title {
-    font-size: 18px;
-    font-weight: 700;
-    color: #ffffff;
-    margin: 6px 0 0 0;
+    font-size: 20px; 
+    font-weight: 600;
+    color: var(--text-main);
+    margin: 4px 0 0 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
 .release-date {
-    font-size: 13px;
-    color: #ffc107;
-    font-weight: 600;
+    font-size: 14px;
+    color: var(--gold-warm);
+    font-weight: 500; 
 }
 
-.btn-book {
-    background-color: #e50914;
-    color: #ffffff;
+.btn-explore {
+    background-color: var(--red-velvet);
+    color: var(--text-main);
     border: none;
-    border-radius: 12px;
-    padding: 14px;
-    font-weight: 700;
-    font-size: 14px;
+    border-radius: 10px; 
+    padding: 16px; 
+    font-weight: 600;
+    font-size: 15px;
     cursor: pointer;
-    margin-top: 6px;
+    margin-top: 8px;
     width: 100%;
+    letter-spacing: 0.5px;
 }
 
 /* Cinema Cards */
 .cinema-list {
     display: flex;
     flex-direction: column;
-    gap: 12px;
+    gap: 14px;
 }
 
 .cinema-card {
-    background-color: #1e1e24;
+    background-color: var(--bg-card);
     border-radius: 16px;
-    padding: 12px 14px;
+    padding: 14px 16px;
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 16px; 
+    border: 1px solid transparent; 
 }
 
 .cinema-logo {
-    width: 52px;
-    height: 52px;
-    border-radius: 12px;
+    width: 60px; 
+    height: 60px;
+    border-radius: 10px;
     background: #ffffff;
     display: flex;
     align-items: center;
     justify-content: center;
     flex-shrink: 0;
+    overflow: hidden;
 }
 
-.logo-text {
-    color: #e50914;
+.placeholder-logo {
+    color: var(--red-velvet);
     font-weight: 900;
-    font-size: 14px;
+    font-size: 18px;
+    border: 2px solid var(--gold-warm);
+    padding: 4px 6px;
+    border-radius: 4px;
 }
 
 .cinema-info {
     flex-grow: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
 }
 
-.cinema-distance {
-    font-size: 11px;
-    color: #6c6c75;
+.cinema-location-info {
     display: flex;
     align-items: center;
     gap: 4px;
 }
 
+.cinema-distance {
+    font-size: 12px;
+    color: var(--text-muted-dark);
+    font-weight: 500;
+}
+
 .cinema-name {
-    font-size: 14px;
+    font-size: 15px;
     font-weight: 600;
-    color: #ffffff;
-    margin: 2px 0;
+    color: var(--text-main);
+    margin: 0;
 }
 
 .cinema-status {
-    font-size: 11px;
-    color: #6c6c75;
+    font-size: 12px;
+    color: var(--text-muted);
     margin: 0;
 }
 
 .cinema-rating {
     display: flex;
     align-items: center;
-    gap: 4px;
-    font-size: 12px;
-    font-weight: 600;
-    color: #ffffff;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-main);
 }

@@ -1,13 +1,15 @@
+@import url("https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap");
+
 :root {
     --bg-main: #121212;
     --bg-card: #1e1e24;
-    --bg-card-hover: #2a2a32;
+    --bg-card-border: #32363d;
     --red-velvet: #e50914;
     --gold-warm: #ffc107;
     --text-main: #f4f4f4;
-    --text-muted: #a0a0a0;
-    --border-color: #2e2e38;
-    --sans-font: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --text-muted: #afafaf;
+    /* Ahora usamos la fuente Poppins, igual a Figma */
+    --sans-font: "Poppins", system-ui, -apple-system, sans-serif;
 }
 
 * {
@@ -28,10 +30,14 @@ body {
 
 #root {
     width: 100%;
-    max-width: 480px; /* Focus for Mobile-First centered on the screen */
+    max-width: 480px;
     min-height: 100vh;
     background-color: var(--bg-main);
     position: relative;
-    padding-bottom: 70px; /* Space for the bottom navigation bar */
-    box-shadow: 0 0 20px rgba(0, 0, 0, 0.8);
+    display: flex;
+    flex-direction: column;
+}
+
+main {
+    flex: 1;
 }

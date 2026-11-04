@@ -25,10 +25,10 @@ export default function App() {
                         }
                     />
                     <Route
-                        path="/settings"
+                        path="/profile"
                         element={
                             <div style={{ padding: 20, textAlign: "center" }}>
-                                Settings Page (In Progress)
+                                Profile Page (In Progress)
                             </div>
                         }
                     />
