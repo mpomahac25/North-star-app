@@ -1,0 +1,136 @@
+.top-nav {
+    display: none;
+}
+
+@media (min-width: 768px) {
+    .top-nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        padding: 16px 32px;
+        background-color: var(--bg-main);
+        border-bottom: 1px solid var(--bg-card-border);
+        position: sticky;
+        top: 0;
+        z-index: 100;
+    }
+
+    .top-nav-left {
+        display: flex;
+        align-items: center;
+        gap: 24px;
+    }
+
+    .top-nav-logo {
+        width: 44px;
+        height: 44px;
+        border-radius: 8px;
+        overflow: hidden;
+        background: #ffffff;
+        flex-shrink: 0;
+    }
+
+    .top-nav-logo img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .top-nav-links {
+        display: flex;
+        gap: 20px;
+    }
+
+    .top-link {
+        color: var(--text-muted);
+        text-decoration: none;
+        font-size: 14px;
+        font-weight: 500;
+        position: relative;
+        padding-bottom: 4px;
+    }
+
+    .top-link.active {
+        color: var(--text-main);
+    }
+
+    .top-link.active::after {
+        content: "";
+        position: absolute;
+        bottom: 0;
+        left: 0;
+        width: 100%;
+        height: 2px;
+        background-color: var(--red-velvet);
+    }
+
+    .top-nav-search {
+        flex: 1;
+        max-width: 360px;
+        min-width: 150px;
+        background-color: var(--search-bg);
+        border: 1px solid var(--bg-card-border);
+        border-radius: 10px;
+        display: flex;
+        align-items: center;
+        padding: 10px 14px;
+        gap: 10px;
+    }
+
+    .top-nav-search input {
+        background: transparent;
+        border: none;
+        outline: none;
+        color: var(--text-main);
+        font-size: 13px;
+        width: 100%;
+    }
+
+    .top-nav-right {
+        display: flex;
+        align-items: center;
+        gap: 20px;
+        flex-shrink: 0;
+    }
+
+    .top-cart-link {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--gold-warm);
+        text-decoration: none;
+        font-size: 13px;
+        font-weight: 500;
+    }
+
+    .top-user-profile {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        cursor: pointer;
+    }
+
+    .top-avatar {
+        width: 36px;
+        height: 36px;
+        border-radius: 8px;
+        object-fit: cover;
+    }
+
+    .top-user-info {
+        display: flex;
+        flex-direction: column;
+        text-align: left;
+    }
+
+    .top-username {
+        font-size: 13px;
+        font-weight: 600;
+        color: var(--text-main);
+    }
+
+    .top-user-role {
+        font-size: 11px;
+        color: var(--text-muted-dark);
+    }
+}
