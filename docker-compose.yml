@@ -69,10 +69,13 @@ services:
     environment:
       <<: *db-environment
       BACKEND_PORT: ${BACKEND_PORT:-3001}
+      MOVIES_API_URL: http://movies:${MOVIES_API_PORT:-3005}
 
     # Wait until the database is healthy before starting
     depends_on:
       postgres:
+        condition: service_healthy
+      movies:
         condition: service_healthy
 
 
@@ -149,6 +152,7 @@ services:
     environment:
       <<: *db-environment
       MOVIES_API_PORT: ${MOVIES_API_PORT:-3005}
+      OMDB_API_KEY: ${OMDB_API_KEY:-}
 
     # Wait until the database is healthy before starting
     depends_on:

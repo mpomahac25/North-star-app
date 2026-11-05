@@ -1,13 +1,49 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Search, MapPin, Star, ArrowUpRight } from "lucide-react";
-import spidermanImg from "../assets/spiderman.jpg";
 import rioLogo from "../assets/rio-logo.png";
 import "./HomePage.css";
 
 export default function HomePage() {
     const [searchTerm, setSearchTerm] = useState("");
+    const [comingSoonMovies, setComingSoonMovies] = useState([]);
+    const [isLoadingMovies, setIsLoadingMovies] = useState(true);
+    const [moviesError, setMoviesError] = useState("");
     const navigate = useNavigate();
+
+    useEffect(() => {
+        const controller = new AbortController();
+
+        async function loadComingSoonMovies() {
+            try {
+                const response = await fetch("/api/movies/coming-soon", {
+                    signal: controller.signal
+                });
+                const movies = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(movies.error || "Could not load movies.");
+                }
+
+                if (!Array.isArray(movies)) {
+                    throw new Error("Movies response must be a list.");
+                }
+
+                setComingSoonMovies(movies);
+            } catch (error) {
+                if (error.name !== "AbortError") {
+                    setMoviesError("Could not load movies. Please try again later.");
+                }
+            } finally {
+                if (!controller.signal.aborted) {
+                    setIsLoadingMovies(false);
+                }
+            }
+        }
+
+        loadComingSoonMovies();
+        return () => controller.abort();
+    }, []);
 
     const handleSearch = (e) => {
         if (e.key === "Enter" || e.type === "click") {
@@ -66,41 +102,31 @@ export default function HomePage() {
                     </button>
                 </div>
 
-                {/* Keep only two sample movies, as decided in the meeting */}
                 <div className="coming-soon-carousel">
-                    <div className="movie-card-coming">
-                        <div className="poster-wrapper">
-                            <img
-                                src={spidermanImg}
-                                alt="One Battle After Another"
-                                className="poster-img"
-                            />
-                        </div>
-                        <div className="movie-card-footer">
-                            <div>
-                                <h3 className="movie-title">One Battle After Another</h3>
-                                <span className="release-date">December 2026</span>
+                    {isLoadingMovies && <p role="status">Loading movies…</p>}
+                    {!isLoadingMovies && moviesError && <p role="alert">{moviesError}</p>}
+                    {!isLoadingMovies && !moviesError && comingSoonMovies.length === 0 && (
+                        <p role="status">No movies available.</p>
+                    )}
+                    {!isLoadingMovies && !moviesError && comingSoonMovies.map((movie) => (
+                        <div className="movie-card-coming" key={movie.imdbId}>
+                            <div className="poster-wrapper">
+                                {movie.poster && (
+                                    <img
+                                        src={movie.poster}
+                                        alt={`${movie.title} (${movie.year}) poster`}
+                                        className="poster-img"
+                                    />
+                                )}
                             </div>
-                            <ArrowUpRight size={18} className="card-arrow desktop-only" />
-                        </div>
-                    </div>
-
-                    <div className="movie-card-coming">
-                        <div className="poster-wrapper">
-                            <img
-                                src={spidermanImg}
-                                alt="Spider-Man: No Way Home"
-                                className="poster-img"
-                            />
-                        </div>
-                        <div className="movie-card-footer">
-                            <div>
-                                <h3 className="movie-title">Spider-Man: No Way Home</h3>
-                                <span className="release-date">December 2026</span>
+                            <div className="movie-card-footer">
+                                <div>
+                                    <h3 className="movie-title">{movie.title}</h3>
+                                    <span className="release-date">{movie.year}</span>
+                                </div>
                             </div>
-                            <ArrowUpRight size={18} className="card-arrow desktop-only" />
                         </div>
-                    </div>
+                    ))}
                 </div>
             </section>
 
