@@ -74,7 +74,7 @@ jobs:
         if: github.event_name == 'pull_request'
         env:
           PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: node .github/scripts/check-versions.mjs
+        run: node .github/scripts/check-version.mjs
 
   jest-tests:
     name: Jest - ${{ matrix.name }}
