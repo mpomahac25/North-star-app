@@ -12,10 +12,6 @@ on:
       - 'db/pnpm-workspace.yaml'
       - '.github/workflows/database-tests.yml'
 
-  push:
-    branches:
-      - cicd_implementation
-
   workflow_dispatch:
 
 permissions:
