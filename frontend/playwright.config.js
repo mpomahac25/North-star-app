@@ -5,6 +5,17 @@ export default defineConfig({
 
     timeout: 15000,
 
+    reporter: [
+        ['list'],
+        [
+            'playwright-ctrf-json-reporter',
+            {
+                outputDir: 'ctrf',
+                outputFile: 'ctrf-report.json'
+            }
+        ]
+    ],
+
     use: {
         baseURL: 'http://127.0.0.1:3000',
         trace: 'retain-on-failure'

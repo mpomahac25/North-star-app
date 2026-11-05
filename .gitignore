@@ -469,3 +469,7 @@ Desktop.ini
 playwright-report/
 test-results/
 blob-report/
+
+# Test reporting
+**/ctrf/
+ci-report/
