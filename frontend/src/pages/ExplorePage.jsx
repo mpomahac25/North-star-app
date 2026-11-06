@@ -1,48 +1,73 @@
+import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { Search, ArrowUpRight } from "lucide-react";
-import spidermanImg from "../assets/spiderman.jpg";
-import heroImg from "../assets/hero.png";
+import { ArrowUpRight } from "lucide-react";
 import "./ExplorePage.css";
 
-const MOCK_MOVIES = [
-    {
-        id: 1,
-        title: "Spider-Man: No Way Home",
-        category: "Coming Soon",
-        release: "December 2026",
-        poster: spidermanImg,
-    },
-    {
-        id: 2,
-        title: "One Battle After Another",
-        category: "Coming Soon",
-        release: "December 2026",
-        poster: heroImg,
-    },
-    {
-        id: 3,
-        title: "Shang-Chi",
-        category: "Now Showing",
-        release: "Action, Fantasy",
-        poster: spidermanImg,
-    },
-    {
-        id: 4,
-        title: "Black Panther",
-        category: "Now Showing",
-        release: "Action, Sci-Fi",
-        poster: heroImg,
-    },
-];
-
 export default function ExplorePage() {
-    const [searchParams, setSearchParams] = useSearchParams();
+    const [searchParams] = useSearchParams();
     const navigate = useNavigate();
-    const query = searchParams.get("search") || "";
 
-    const filteredMovies = MOCK_MOVIES.filter((movie) =>
-        movie.title.toLowerCase().includes(query.toLowerCase()),
-    );
+    const query = searchParams.get("search") || "";
+    const [movies, setMovies] = useState([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState("");
+
+    useEffect(() => {
+        const controller = new AbortController();
+
+        async function fetchMovies() {
+            const trimmedQuery = query.trim();
+
+            if (!trimmedQuery) {
+                setMovies([]);
+                setError("");
+                setIsLoading(false);
+                return;
+            }
+
+            setIsLoading(true);
+            setError("");
+
+            try {
+                const params = new URLSearchParams({
+                    q: trimmedQuery,
+                    page: "1",
+                });
+
+                const response = await fetch(`/api/movies/search?${params.toString()}`, {
+                    signal: controller.signal,
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || "Could not load movies.");
+                }
+
+                setMovies(
+                    (data.Search || []).map((movie) => ({
+                        id: movie.imdbID,
+                        title: movie.Title,
+                        year: movie.Year,
+                        poster: movie.Poster === "N/A" ? null : movie.Poster,
+                    })),
+                );
+            } catch (requestError) {
+                if (requestError.name !== "AbortError") {
+                    setError("Could not load movies. Please try again later.");
+                    setMovies([]);
+                }
+            } finally {
+                if (!controller.signal.aborted) {
+                    setIsLoading(false);
+                }
+            }
+        }
+
+        fetchMovies();
+
+        return () => controller.abort();
+    }, [query]);
 
     return (
         <div className="explore-container">
@@ -53,36 +78,45 @@ export default function ExplorePage() {
                 </p>
             </header>
 
-            {/* Grid of Movie Cards */}
             <div className="explore-grid">
-                {filteredMovies.length > 0 ? (
-                    filteredMovies.map((movie) => (
+                {isLoading && <p role="status">Loading movies...</p>}
+
+                {!isLoading && error && <p role="alert">{error}</p>}
+
+                {!isLoading && !error && movies.length === 0 && (
+                    <p role="status">
+                        {query ? `No movies found for "${query}".` : "Search for a movie."}
+                    </p>
+                )}
+
+                {!isLoading &&
+                    !error &&
+                    movies.map((movie) => (
                         <div
                             key={movie.id}
                             className="explore-card"
-                            onClick={() => navigate("/details")}
+                            onClick={() => navigate(`/details/${movie.id}`)}
                         >
                             <div className="explore-poster-wrapper">
-                                <img
-                                    src={movie.poster}
-                                    alt={movie.title}
-                                    className="explore-poster-img"
-                                />
+                                {movie.poster && (
+                                    <img
+                                        src={movie.poster}
+                                        alt={`${movie.title} poster`}
+                                        className="explore-poster-img"
+                                    />
+                                )}
                             </div>
+
                             <div className="explore-card-footer">
                                 <div>
                                     <h3 className="explore-movie-title">{movie.title}</h3>
-                                    <span className="explore-movie-meta">{movie.release}</span>
+                                    <span className="explore-movie-meta">{movie.year}</span>
                                 </div>
+
                                 <ArrowUpRight size={16} className="card-arrow" />
                             </div>
                         </div>
-                    ))
-                ) : (
-                    <div className="no-results">
-                        <p>No movies found for "{query}".</p>
-                    </div>
-                )}
+                    ))}
             </div>
         </div>
     );

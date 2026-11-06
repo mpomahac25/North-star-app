@@ -6,7 +6,7 @@ import "./HomePage.css";
 
 export default function HomePage() {
     const [searchTerm, setSearchTerm] = useState("");
-    const [comingSoonMovies, setComingSoonMovies] = useState([]);
+    const [featuredMovies, setFeaturedMovies] = useState([]);
     const [isLoadingMovies, setIsLoadingMovies] = useState(true);
     const [moviesError, setMoviesError] = useState("");
     const navigate = useNavigate();
@@ -14,10 +14,10 @@ export default function HomePage() {
     useEffect(() => {
         const controller = new AbortController();
 
-        async function loadComingSoonMovies() {
+        async function loadFeaturedMovies() {
             try {
                 const response = await fetch("/api/movies/coming-soon", {
-                    signal: controller.signal
+                    signal: controller.signal,
                 });
                 const movies = await response.json();
 
@@ -29,7 +29,7 @@ export default function HomePage() {
                     throw new Error("Movies response must be a list.");
                 }
 
-                setComingSoonMovies(movies);
+                setFeaturedMovies(movies.slice(0, 5));
             } catch (error) {
                 if (error.name !== "AbortError") {
                     setMoviesError("Could not load movies. Please try again later.");
@@ -41,7 +41,7 @@ export default function HomePage() {
             }
         }
 
-        loadComingSoonMovies();
+        loadFeaturedMovies();
         return () => controller.abort();
     }, []);
 
@@ -92,10 +92,10 @@ export default function HomePage() {
                 <h1 className="username">Kakaroto</h1>
             </div>
 
-            {/* Coming Soon Section */}
+            {/* Featured Movies Section */}
             <section className="section-coming-soon">
                 <div className="section-header">
-                    <h2 className="section-title">Coming Soon</h2>
+                    <h2 className="section-title">Featured Movies</h2>
                     {/* Explore button for desktop */}
                     <button className="btn-explore-top" onClick={() => navigate("/explore")}>
                         Explore movies <ArrowUpRight size={16} />
@@ -105,10 +105,10 @@ export default function HomePage() {
                 <div className="coming-soon-carousel">
                     {isLoadingMovies && <p role="status">Loading movies…</p>}
                     {!isLoadingMovies && moviesError && <p role="alert">{moviesError}</p>}
-                    {!isLoadingMovies && !moviesError && comingSoonMovies.length === 0 && (
+                    {!isLoadingMovies && !moviesError && featuredMovies.length === 0 && (
                         <p role="status">No movies available.</p>
                     )}
-                    {!isLoadingMovies && !moviesError && comingSoonMovies.map((movie) => (
+                    {!isLoadingMovies && !moviesError && featuredMovies.map((movie) => (
                         <div className="movie-card-coming" key={movie.imdbId}>
                             <div className="poster-wrapper">
                                 {movie.poster && (
