@@ -1,0 +1,26 @@
+Movies API – Local Development
+
+1. Start the development server
+
+bash
+cd \services\movies
+pnpm dev
+
+
+####2. Health Check
+GET http://localhost:3005/api/health
+
+
+####3. Search Movie by IMDb ID
+GET http://localhost:3005/api/movies/tt0780504
+
+
+####4. Search Movie by Title
+GET http://localhost:3005/api/movies/title?title=Drive
+
+
+####5. Search Movie by Title and Year
+GET http://localhost:3005/api/movies/title?title=Drive&year=2011
+
+####6. Non-Strict Search by Title and Type
+GET http://localhost:3005/api/movies/search?q=Drive&type=movie
