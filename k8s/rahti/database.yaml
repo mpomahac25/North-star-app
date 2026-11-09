@@ -110,7 +110,8 @@ spec:
                 - ALL
             runAsNonRoot: true
             seccompProfile:
-              type: RuntimeDefault
+              type: Localhost
+              localhostProfile: rahti-custom-seccomp.json
 
       volumes:
         - name: postgres-data

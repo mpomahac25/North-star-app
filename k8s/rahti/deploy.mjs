@@ -197,7 +197,8 @@ function createDeployment(component) {
                                 },
                                 runAsNonRoot: true,
                                 seccompProfile: {
-                                    type: 'RuntimeDefault'
+                                    type: 'Localhost',
+                                    localhostProfile: 'rahti-custom-seccomp.json'
                                 }
                             }
                         }
