@@ -22,11 +22,21 @@ export default function HomePage() {
                 const movies = await response.json();
 
                 if (!response.ok) {
-                    throw new Error(movies.error || "Could not load movies.");
+                    throw new Error(
+                        movies.error?.message || "Could not load movies. Please try again later.",
+                    );
                 }
 
                 if (!Array.isArray(movies)) {
-                    throw new Error("Movies response must be a list.");
+                    throw new Error("Could not load movies. Please try again later.");
+                }
+
+                // Check if any movie entry in the array is missing required fields
+                const hasInvalidMovie = movies.some(
+                    (m) => !m || typeof m !== "object" || !m.title || !m.imdbId,
+                );
+                if (hasInvalidMovie) {
+                    throw new Error("Could not load movies. Please try again later.");
                 }
 
                 setFeaturedMovies(movies.slice(0, 8));
@@ -47,11 +57,11 @@ export default function HomePage() {
 
     const handleSearch = (e) => {
         if (e.key === "Enter" || e.type === "click") {
-            // Removes extra spaces and converts the text to lowercase
             const cleanedSearch = searchTerm.trim().toLowerCase();
 
             if (cleanedSearch) {
-                navigate(`/explore?search=${cleanedSearch}`);
+                // Safely encode special characters like &, #, and +
+                navigate(`/explore?search=${encodeURIComponent(cleanedSearch)}`);
             }
         }
     };

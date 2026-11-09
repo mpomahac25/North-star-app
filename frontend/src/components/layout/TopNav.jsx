@@ -11,11 +11,11 @@ export default function TopNav() {
     // This function runs when Enter is pressed or the search icon is clicked
     const handleSearch = (e) => {
         if (e.key === "Enter" || e.type === "click") {
-            // Removes extra spaces and converts the text to lowercase
             const cleanedSearch = searchTerm.trim().toLowerCase();
 
             if (cleanedSearch) {
-                navigate(`/explore?search=${cleanedSearch}`);
+                // Safely encode special characters for desktop search as well
+                navigate(`/explore?search=${encodeURIComponent(cleanedSearch)}`);
             }
         }
     };

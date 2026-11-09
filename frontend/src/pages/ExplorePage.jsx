@@ -29,27 +29,40 @@ export default function ExplorePage() {
             setError("");
 
             try {
-                const params = new URLSearchParams({
-                    q: trimmedQuery,
-                    page: "1",
-                });
+                // By manually encoding the parameter, we ensure "Fast & Furious"
+                // doesn't break the URL string.
+                const safeQuery = encodeURIComponent(trimmedQuery);
+                const url = `/api/movies/search?q=${safeQuery}&page=1`;
 
-                const response = await fetch(`/api/movies/search?${params.toString()}`, {
+                const response = await fetch(url, {
                     signal: controller.signal,
                 });
 
                 const data = await response.json();
 
                 if (!response.ok) {
-                    throw new Error(data.error || "Could not load movies.");
+                    throw new Error(
+                        data.error?.message || "Could not load movies. Please try again later.",
+                    );
                 }
 
+                if (!Array.isArray(data) && !data.Search && !data.movies && !data.results) {
+                    throw new Error("Could not load movies. Please try again later.");
+                }
+
+                const rawList = Array.isArray(data)
+                    ? data
+                    : data.Search || data.movies || data.results || [];
+
                 setMovies(
-                    (data.Search || []).map((movie) => ({
-                        id: movie.imdbID,
-                        title: movie.Title,
-                        year: movie.Year,
-                        poster: movie.Poster === "N/A" ? null : movie.Poster,
+                    rawList.map((movie) => ({
+                        id: movie.imdbID || movie.imdbId || movie.id,
+                        title: movie.Title || movie.title,
+                        year: movie.Year || movie.year,
+                        poster:
+                            movie.Poster === "N/A" || movie.poster === "N/A"
+                                ? null
+                                : movie.Poster || movie.poster,
                     })),
                 );
             } catch (requestError) {
