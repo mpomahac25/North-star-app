@@ -29,7 +29,7 @@ export default function HomePage() {
                     throw new Error("Movies response must be a list.");
                 }
 
-                setFeaturedMovies(movies.slice(0, 5));
+                setFeaturedMovies(movies.slice(0, 8));
             } catch (error) {
                 if (error.name !== "AbortError") {
                     setMoviesError("Could not load movies. Please try again later.");
@@ -108,25 +108,27 @@ export default function HomePage() {
                     {!isLoadingMovies && !moviesError && featuredMovies.length === 0 && (
                         <p role="status">No movies available.</p>
                     )}
-                    {!isLoadingMovies && !moviesError && featuredMovies.map((movie) => (
-                        <div className="movie-card-coming" key={movie.imdbId}>
-                            <div className="poster-wrapper">
-                                {movie.poster && (
-                                    <img
-                                        src={movie.poster}
-                                        alt={`${movie.title} (${movie.year}) poster`}
-                                        className="poster-img"
-                                    />
-                                )}
-                            </div>
-                            <div className="movie-card-footer">
-                                <div>
-                                    <h3 className="movie-title">{movie.title}</h3>
-                                    <span className="release-date">{movie.year}</span>
+                    {!isLoadingMovies &&
+                        !moviesError &&
+                        featuredMovies.map((movie) => (
+                            <div className="movie-card-coming" key={movie.imdbId}>
+                                <div className="poster-wrapper">
+                                    {movie.poster && (
+                                        <img
+                                            src={movie.poster}
+                                            alt={`${movie.title} (${movie.year}) poster`}
+                                            className="poster-img"
+                                        />
+                                    )}
+                                </div>
+                                <div className="movie-card-footer">
+                                    <div>
+                                        <h3 className="movie-title">{movie.title}</h3>
+                                        <span className="release-date">{movie.year}</span>
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    ))}
+                        ))}
                 </div>
             </section>
 
