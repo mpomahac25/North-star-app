@@ -1,0 +1,83 @@
+name: CI Failure Notification
+
+on:
+  workflow_run:
+    workflows:
+      - CI
+    types:
+      - completed
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  notify:
+    name: Email CI failure report
+    if: ${{ github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'timed_out' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout trusted reporting code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Download completed CI report
+        uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          name: rio-theaters-test-report
+          path: reports/raw
+          run-id: ${{ github.event.workflow_run.id }}
+          repository: ${{ github.repository }}
+          github-token: ${{ github.token }}
+
+      - name: Prepare safe email report
+        env:
+          CI_ACTOR: ${{ github.event.workflow_run.actor.login }}
+          CI_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          CI_SHA: ${{ github.event.workflow_run.head_sha }}
+          CI_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          CI_RUN_URL: ${{ github.event.workflow_run.html_url }}
+        run: node .github/scripts/prepare-ci-email.mjs
+
+      - name: Resolve notification recipient
+        id: recipient
+        shell: bash
+        env:
+          DEVELOPER_EMAIL: ${{ vars[github.event.workflow_run.actor.login] }}
+          DEVELOPER_LOGIN: ${{ github.event.workflow_run.actor.login }}
+        run: |
+          email="$DEVELOPER_EMAIL"
+
+          if [[ ! "$email" =~ ^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$ ]]; then
+            email="riotheaters@gmail.com"
+            echo "::warning::No valid recipient variable for $DEVELOPER_LOGIN; sending to CI mailbox instead."
+          fi
+
+          echo "address=$email" >> "$GITHUB_OUTPUT"
+
+      - name: Send failure email with report
+        uses: dawidd6/action-send-mail@v23
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+
+          from: 'Rio Theaters CI <riotheaters@gmail.com>'
+          to: ${{ steps.recipient.outputs.address }}
+
+          subject: '[Rio Theaters] CI failed - ${{ github.event.workflow_run.head_branch }}'
+
+          body: file://reports/email/notification.txt
+          attachments: reports/email/rio-theaters-test-report.html
