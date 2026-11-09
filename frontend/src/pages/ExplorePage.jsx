@@ -116,6 +116,12 @@ export default function ExplorePage() {
                                         src={movie.poster}
                                         alt={`${movie.title} poster`}
                                         className="explore-poster-img"
+                                        onError={(e) => {
+                                            // how placeholder if img fails to load
+                                            e.target.onerror = null;
+                                            e.target.src =
+                                                "https://via.placeholder.com/300x450?text=No+Poster";
+                                        }}
                                     />
                                 )}
                             </div>

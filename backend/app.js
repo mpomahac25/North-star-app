@@ -71,8 +71,28 @@ app.get("/api/movies/coming-soon", async (req, res) => {
         return res.status(502).json({
             error: {
                 code: "MOVIES_SERVICE_UNAVAILABLE",
-                message: "Could not load Coming Soon movies from the movies service."
-            }
+                message: "Could not load Coming Soon movies from the movies service.",
+            },
+        });
+    }
+});
+
+app.get("/api/movies/search", async (req, res) => {
+    try {
+        const queryString = new URLSearchParams(req.query).toString();
+        const targetUrl = new URL(`/api/movies/search?${queryString}`, MOVIES_API_URL);
+
+        const response = await fetch(targetUrl);
+        const data = await response.json();
+
+        return res.status(response.status).json(data);
+    } catch (error) {
+        console.error("Could not fetch search results from movies service:", error);
+        return res.status(500).json({
+            error: {
+                code: "MOVIES_SERVICE_ERROR",
+                message: "Could not fetch search results from the movies service.",
+            },
         });
     }
 });
