@@ -86,21 +86,27 @@ jobs:
       matrix:
         include:
           - name: Frontend
+            id: frontend
             directory: frontend
 
           - name: Backend
+            id: backend
             directory: backend
 
           - name: Booking
+            id: booking
             directory: services/booking
 
           - name: Login
+            id: login
             directory: services/login
 
           - name: Payment
+            id: payment
             directory: services/payment
 
           - name: Movies
+            id: movies
             directory: services/movies
 
     steps:
@@ -126,6 +132,15 @@ jobs:
       - name: Run Jest tests
         working-directory: ${{ matrix.directory }}
         run: pnpm test
+
+      - name: Upload Jest CTRF report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctrf-${{ matrix.id }}
+          path: ${{ matrix.directory }}/ctrf/ctrf-report.json
+          if-no-files-found: warn
+          retention-days: 14
 
   frontend-quality:
     name: Frontend lint and build
@@ -197,6 +212,15 @@ jobs:
         working-directory: frontend
         run: pnpm test:e2e
 
+      - name: Upload Playwright CTRF report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctrf-playwright
+          path: frontend/ctrf/ctrf-report.json
+          if-no-files-found: warn
+          retention-days: 14
+
       - name: Upload failure evidence
         if: failure()
         uses: actions/upload-artifact@v4
@@ -258,6 +282,69 @@ jobs:
           DB_TEST_URL: postgresql://rio:ci_test_password@127.0.0.1:5432/rio_schema_test
         run: pnpm test
 
+      - name: Upload database CTRF report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ctrf-database
+          path: db/ctrf/ctrf-report.json
+          if-no-files-found: warn
+          retention-days: 14
+
+  report-tests:
+    name: Consolidated Test Report
+    if: always()
+
+    needs:
+      - detect-database-changes
+      - version-check
+      - jest-tests
+      - frontend-quality
+      - playwright-tests
+      - database-tests
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Download CTRF artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: ctrf-*
+          path: reports/input
+
+      - name: Generate combined CTRF and HTML reports
+        env:
+          DATABASE_REQUIRED: ${{ needs.detect-database-changes.outputs.database }}
+        run: node .github/scripts/generate-test-report.mjs
+
+      - name: Publish individual test results to GitHub
+        if: always() && hashFiles('reports/output/combined-ctrf.json') != ''
+        uses: ctrf-io/github-test-reporter@v1
+        with:
+          report-path: reports/output/combined-ctrf.json
+          summary-report: true
+          test-list-report: true
+          failed-report: true
+          annotate: false
+          exit-on-no-files: true
+
+      - name: Upload consolidated test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rio-theaters-test-report
+          path: reports/output/
+          if-no-files-found: error
+          retention-days: 14
+
   ci-gate:
     name: Required CI checks
     if: always()
@@ -269,6 +356,7 @@ jobs:
       - frontend-quality
       - playwright-tests
       - database-tests
+      - report-tests
 
     runs-on: ubuntu-latest
 
@@ -284,11 +372,12 @@ jobs:
           PLAYWRIGHT_STATUS: ${{ needs.playwright-tests.result }}
           DATABASE_STATUS: ${{ needs.database-tests.result }}
           DATABASE_CHANGED: ${{ needs.detect-database-changes.outputs.database }}
+          REPORT_STATUS: ${{ needs.report-tests.result }}
 
         run: |
           failed=0
 
-          for status in "$DETECT_STATUS" "$VERSION_STATUS" "$JEST_STATUS" "$FRONTEND_STATUS" "$PLAYWRIGHT_STATUS"; do
+          for status in "$DETECT_STATUS" "$VERSION_STATUS" "$JEST_STATUS" "$FRONTEND_STATUS" "$PLAYWRIGHT_STATUS" "$REPORT_STATUS"; do
             if [ "$status" != "success" ]; then
               echo "Required job result: $status"
               failed=1
