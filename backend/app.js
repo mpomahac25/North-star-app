@@ -52,7 +52,7 @@ app.get("/api/movies/coming-soon", async (req, res) => {
 
                 if (!response.ok) {
                     throw new Error(
-                        movie.error || `Movies service returned HTTP ${response.status}.`,
+                        movie.error?.message || `Movies service returned HTTP ${response.status}.`,
                     );
                 }
 
@@ -69,9 +69,22 @@ app.get("/api/movies/coming-soon", async (req, res) => {
     } catch (error) {
         console.error("Could not load Coming Soon movies:", error);
         return res.status(502).json({
-            error: "Could not load Coming Soon movies from the movies service.",
+            error: {
+                code: "MOVIES_SERVICE_UNAVAILABLE",
+                message: "Could not load Coming Soon movies from the movies service."
+            }
         });
     }
+});
+
+// MUST BE KEPT AFTER ALL ROUTES!!!
+app.use((req, res) => {
+    res.status(404).json({
+        error: {
+            code: "ROUTE_NOT_FOUND",
+            message: "The requested API route does not exist.",
+        },
+    });
 });
 
 export default app;
