@@ -473,3 +473,6 @@ blob-report/
 # Test reporting
 **/ctrf/
 ci-report/
+
+# Notepad++ backup files
+*.bak
