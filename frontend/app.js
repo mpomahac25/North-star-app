@@ -18,7 +18,10 @@ export function createApp(backendUrl) {
         res.set('Allow', 'GET, HEAD');
 
         res.status(405).json({
-            error: 'Method not allowed'
+            error: {
+                code: "METHOD_NOT_ALLOWED",
+                message: "The requested HTTP method is not allowed."
+            }
         });
     });
 
@@ -32,14 +35,20 @@ export function createApp(backendUrl) {
             error: (error, req, res) => {
                 console.error(`Proxy error: ${error.message}`);
 
-                if (!res.headersSent) {
-                    res.writeHead(502, {
-                        'Content-Type': 'application/json'
-                    });
+                if (res.headersSent) {
+                    res.destroy(error);
+                    return;
                 }
 
+                res.writeHead(502, {
+                    'Content-Type': 'application/json'
+                });
+
                 res.end(JSON.stringify({
-                    error: 'Backend service unavailable'
+                    error: {
+                        code: "BACKEND_UNAVAILABLE",
+                        message: "The backend service is unavailable."
+                    }
                 }));
             }
         }

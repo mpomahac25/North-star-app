@@ -1,5 +1,5 @@
 export default {
-    testEnvironment: 'node',
+    testEnvironment: "node",
     transform: {},
     testMatch: [
         '<rootDir>/tests/unit/**/*.test.js',
