@@ -16,6 +16,7 @@
   "packageManager": "pnpm@12.16.1",
   "devDependencies": {
     "jest": "^30.5.2",
+    "jest-ctrf-json-reporter": "^0.2.0",
     "pg": "^8.23.1"
   }
 }

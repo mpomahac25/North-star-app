@@ -12,11 +12,14 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
+    "bootstrap": "^5.3.8",
     "dotenv": "^18.0.9",
     "express": "^5.3.0",
     "http-proxy-middleware": "^4.2.1",
+    "lucide-react": "^1.67.0",
     "react": "^19.3.1",
-    "react-dom": "^19.3.1"
+    "react-dom": "^19.3.1",
+    "react-router-dom": "^7.18.5"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
@@ -29,6 +32,8 @@
     "eslint-plugin-react-refresh": "^0.5.7",
     "globals": "^17.13.0",
     "jest": "^30.5.2",
+    "jest-ctrf-json-reporter": "^0.2.0",
+    "playwright-ctrf-json-reporter": "^0.2.0",
     "supertest": "^7.3.1",
     "vite": "^8.3.5"
   }
