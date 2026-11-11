@@ -1,0 +1,22 @@
+{
+  "name": "rio-theaters-db-tests",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --experimental-vm-modules ./node_modules/jest/bin/jest.js --runInBand"
+  },
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "12.16.1",
+      "onFail": "download"
+    }
+  },
+  "packageManager": "pnpm@12.16.1",
+  "devDependencies": {
+    "jest": "^30.5.2",
+    "jest-ctrf-json-reporter": "^0.2.0",
+    "pg": "^8.23.1"
+  }
+}

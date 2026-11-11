@@ -464,3 +464,15 @@ Thumbs.db
 Desktop.ini
 *.sw?
 *.ntvs*
+
+# Playwright
+playwright-report/
+test-results/
+blob-report/
+
+# Test reporting
+**/ctrf/
+ci-report/
+
+# Notepad++ backup files
+*.bak

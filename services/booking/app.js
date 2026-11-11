@@ -8,13 +8,21 @@
 import express from 'express';
 
 const app = express();
+const SERVICE_IDENTIFIER = 'booking';
 
 app.use(express.json());
+
+app.get('/api/live', (req, res) => {
+    res.json({
+        status: 'alive',
+        service: SERVICE_IDENTIFIER
+    });
+});
 
 app.get('/api/health', (req, res) => {
     res.json({
         status: 'ok',
-        service: 'booking'
+        service: SERVICE_IDENTIFIER
     });
 });
 
