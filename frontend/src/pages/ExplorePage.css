@@ -14,6 +14,22 @@
     gap: 6px;
 }
 
+.explore-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-back {
+    background: none;
+    border: none;
+    color: var(--text-main);
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    align-items: center;
+}
+
 .explore-title {
     font-size: 24px;
     font-weight: 700;
@@ -23,6 +39,36 @@
 .explore-subtitle {
     font-size: 13px;
     color: var(--text-muted);
+}
+
+/* Category Filter Tabs */
+.explore-tabs {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.tab-btn {
+    background-color: var(--bg-card);
+    color: var(--text-muted);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 20px;
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.tab-btn:hover {
+    color: var(--text-main);
+    border-color: var(--text-muted-dark);
+}
+
+.tab-btn.active {
+    background-color: var(--red-velvet);
+    color: var(--text-main);
+    border-color: var(--red-velvet);
 }
 
 .explore-grid {
@@ -83,6 +129,58 @@
     text-align: center;
     padding: 40px 0;
     color: var(--text-muted);
+}
+
+/* Load More Button */
+.load-more-container {
+    display: flex;
+    justify-content: center;
+    margin-top: 24px;
+}
+
+.btn-load-more {
+    background-color: var(--bg-card);
+    color: var(--text-main);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 8px;
+    padding: 12px 28px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background-color 0.2s ease;
+}
+
+.btn-load-more:hover {
+    background-color: var(--search-bg);
+}
+
+.btn-load-more:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.explore-card-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.explore-screenings {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.screening-badge {
+    background-color: var(--bg-card);
+    border: 1px solid var(--bg-card-border);
+    color: var(--gold-warm);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 6px;
 }
 
 /* Desktop Styles */
