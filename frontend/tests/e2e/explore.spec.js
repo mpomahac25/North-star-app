@@ -34,18 +34,33 @@ async function mockSearch(page, body = searchResults, status = 200) {
 }
 
 test.describe("Explore Page", () => {
-    test("Displays the initial state without making a search request", async ({ page }) => {
-        let searchRequests = 0;
+    test("Displays the default movie grid and filter tabs", async ({ page }) => {
+        let receivedQuery = null;
+        let showingRequests = 0;
 
         await page.route(
             (url) => url.pathname === "/api/movies/search",
             (route) => {
-                searchRequests++;
+                const url = new URL(route.request().url());
+                receivedQuery = url.searchParams.get("q");
 
                 return route.fulfill({
                     status: 200,
                     contentType: "application/json",
                     body: JSON.stringify(searchResults),
+                });
+            },
+        );
+
+        await page.route(
+            (url) => url.pathname === "/api/movies/coming-soon",
+            (route) => {
+                showingRequests++;
+
+                return route.fulfill({
+                    status: 200,
+                    contentType: "application/json",
+                    body: JSON.stringify(searchResults.Search),
                 });
             },
         );
@@ -56,11 +71,22 @@ test.describe("Explore Page", () => {
             page.getByRole("heading", { name: "Explore movies" }),
         ).toBeVisible();
 
-        await expect(page.getByText("Search for a movie.")).toBeVisible();
+        await expect(page.locator(".explore-card")).toHaveCount(2);
+        expect(receivedQuery).toBe("movie");
 
-        await expect(page.locator(".explore-card")).toHaveCount(0);
+        await expect(page.getByRole("button", { name: "All movies" })).toBeVisible();
+        await expect(page.getByRole("button", { name: "Now showing" })).toBeVisible();
 
-        expect(searchRequests).toBe(0);
+        for (const card of await page.locator(".explore-card").all()) {
+            await expect(card.locator(".screening-badge")).toHaveCount(2);
+        }
+
+        await page.getByRole("button", { name: "Now showing" }).click();
+
+        await expect(page.locator(".explore-card")).toHaveCount(2);
+        expect(showingRequests).toBe(1);
+        await expect(page.locator(".screening-badge").first()).toHaveText("Oulu 18:00");
+        await expect(page.locator(".screening-badge").nth(1)).toHaveText("Tampere 20:30");
     });
 
     test("Displays search results and sends correct query parameters", async ({ page }) => {

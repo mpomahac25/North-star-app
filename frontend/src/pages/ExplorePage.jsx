@@ -62,6 +62,10 @@ export default function ExplorePage() {
                     throw new Error(data.error?.message || data.error || "Could not load movies.");
                 }
 
+                if (!Array.isArray(data) && !data.Search && !data.movies && !data.results) {
+                    throw new Error("Could not load movies. Please try again later.");
+                }
+
                 const rawList = Array.isArray(data)
                     ? data
                     : data.Search || data.movies || data.results || [];
