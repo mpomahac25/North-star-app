@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { ArrowUpRight, ChevronLeft } from "lucide-react";
 import "./ExplorePage.css";
@@ -15,6 +15,8 @@ export default function ExplorePage() {
     const [isLoading, setIsLoading] = useState(false);
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [error, setError] = useState("");
+    const [loadMoreError, setLoadMoreError] = useState("");
+    const abortControllerRef = useRef(null);
 
     // Reset page to 1 during render when query changes (prevents cascading render warnings)
     const [prevQuery, setPrevQuery] = useState(query);
@@ -31,86 +33,104 @@ export default function ExplorePage() {
         }
     };
 
-    useEffect(() => {
+    const fetchMovies = useCallback(async (requestedPage, append = false) => {
+        abortControllerRef.current?.abort();
         const controller = new AbortController();
+        abortControllerRef.current = controller;
+        const trimmedQuery = query.trim();
+        const searchQuery = trimmedQuery || "movie";
 
-        async function fetchMovies() {
-            const trimmedQuery = query.trim();
-            const searchQuery = trimmedQuery || "movie";
-
-            if (page === 1) {
-                setIsLoading(true);
-            } else {
-                setIsLoadingMore(true);
-            }
+        if (append) {
+            setIsLoadingMore(true);
+            setLoadMoreError("");
+        } else {
+            setIsLoading(true);
             setError("");
-
-            try {
-                let url = "";
-
-                if (activeTab === "showing") {
-                    url = "/api/movies/coming-soon";
-                } else {
-                    const safeQuery = encodeURIComponent(searchQuery);
-                    url = `/api/movies/search?q=${safeQuery}&page=${page}&type=movie`;
-                }
-
-                const response = await fetch(url, { signal: controller.signal });
-                const data = await response.json();
-
-                if (!response.ok) {
-                    throw new Error(data.error?.message || data.error || "Could not load movies.");
-                }
-
-                if (!Array.isArray(data) && !data.Search && !data.movies && !data.results) {
-                    throw new Error("Could not load movies. Please try again later.");
-                }
-
-                const rawList = Array.isArray(data)
-                    ? data
-                    : data.Search || data.movies || data.results || [];
-
-                const totalResults = Number(data.totalResults || 0);
-
-                const formattedList = rawList.map((movie, index) => ({
-                    id: movie.imdbID || movie.imdbId || movie.id,
-                    title: movie.Title || movie.title,
-                    year: movie.Year || movie.year,
-                    poster:
-                        movie.Poster === "N/A" || movie.poster === "N/A"
-                            ? null
-                            : movie.Poster || movie.poster,
-                    // Mock Rio screenings for Oulu & Tampere until /api/screenings is wired in backend
-                    screenings:
-                        index % 2 === 0
-                            ? ["Oulu 18:00", "Tampere 20:30"]
-                            : ["Oulu 19:15", "Tampere 17:45"],
-                }));
-
-                if (page === 1) {
-                    setMovies(formattedList);
-                } else {
-                    setMovies((prev) => [...prev, ...formattedList]);
-                }
-
-                setHasMore(totalResults > 0 && page * 10 < totalResults);
-            } catch (requestError) {
-                if (requestError.name !== "AbortError") {
-                    setError("Could not load movies. Please try again later.");
-                    if (page === 1) setMovies([]);
-                }
-            } finally {
-                if (!controller.signal.aborted) {
-                    setIsLoading(false);
-                    setIsLoadingMore(false);
-                }
-            }
+            setLoadMoreError("");
         }
 
-        fetchMovies();
+        try {
+            let url = "";
 
-        return () => controller.abort();
-    }, [query, activeTab, page]);
+            if (activeTab === "showing") {
+                url = "/api/movies/coming-soon";
+            } else {
+                const safeQuery = encodeURIComponent(searchQuery);
+                url = `/api/movies/search?q=${safeQuery}&page=${requestedPage}&type=movie`;
+            }
+
+            const response = await fetch(url, { signal: controller.signal });
+            const data = await response.json();
+
+            if (controller.signal.aborted || abortControllerRef.current !== controller) {
+                return;
+            }
+
+            if (!response.ok) {
+                throw new Error(data.error?.message || data.error || "Could not load movies.");
+            }
+
+            if (!Array.isArray(data) && !data.Search && !data.movies && !data.results) {
+                throw new Error("Could not load movies. Please try again later.");
+            }
+
+            const rawList = Array.isArray(data)
+                ? data
+                : data.Search || data.movies || data.results || [];
+            const totalResults = Number(data.totalResults || 0);
+            const formattedList = rawList.map((movie, index) => ({
+                id: movie.imdbID || movie.imdbId || movie.id,
+                title: movie.Title || movie.title,
+                year: movie.Year || movie.year,
+                poster:
+                    movie.Poster === "N/A" || movie.poster === "N/A"
+                        ? null
+                        : movie.Poster || movie.poster,
+                screenings:
+                    index % 2 === 0
+                        ? ["Oulu 18:00", "Tampere 20:30"]
+                        : ["Oulu 19:15", "Tampere 17:45"],
+            }));
+
+            if (append) {
+                setMovies((prev) => [...prev, ...formattedList]);
+                setPage(requestedPage);
+            } else {
+                setMovies(formattedList);
+            }
+            setHasMore(totalResults > 0 && requestedPage * 10 < totalResults);
+        } catch (requestError) {
+            if (requestError.name !== "AbortError") {
+                if (append) {
+                    setLoadMoreError(
+                        "Failed to load additional movies, please try again in a while.",
+                    );
+                } else {
+                    setError("Could not load movies. Please try again later.");
+                    setMovies([]);
+                }
+            }
+        } finally {
+            if (!controller.signal.aborted && abortControllerRef.current === controller) {
+                setIsLoading(false);
+                setIsLoadingMore(false);
+            }
+        }
+    }, [activeTab, query]);
+
+    useEffect(() => {
+        async function loadInitialMovies() {
+            await fetchMovies(1);
+        }
+
+        loadInitialMovies();
+
+        return () => {
+            abortControllerRef.current?.abort();
+        };
+    }, [fetchMovies]);
+
+    const handleLoadMore = () => fetchMovies(page + 1, true);
 
     return (
         <div className="explore-container">
@@ -155,6 +175,7 @@ export default function ExplorePage() {
                         {query ? `No movies found for "${query}".` : "No movies available."}
                     </p>
                 )}
+                {!isLoading && loadMoreError && <p role="alert">{loadMoreError}</p>}
 
                 {!isLoading &&
                     !error &&
@@ -170,6 +191,7 @@ export default function ExplorePage() {
                                         src={movie.poster}
                                         alt={`${movie.title} poster`}
                                         className="explore-poster-img"
+                                        loading="lazy"
                                         onError={(e) => {
                                             e.target.onerror = null;
                                             e.target.src =
@@ -201,10 +223,14 @@ export default function ExplorePage() {
                 <div className="load-more-container">
                     <button
                         className="btn-load-more"
-                        onClick={() => setPage((prev) => prev + 1)}
+                        onClick={handleLoadMore}
                         disabled={isLoadingMore}
                     >
-                        {isLoadingMore ? "Loading..." : "Show more movies"}
+                        {isLoadingMore
+                            ? "Loading..."
+                            : loadMoreError
+                              ? "Try again"
+                              : "Show more movies"}
                     </button>
                 </div>
             )}
