@@ -9,22 +9,22 @@ permissions:
   contents: read
 
 concurrency:
-  group: cd-rahti-dev
+  group: rio-theaters-rahti-dev
   cancel-in-progress: false
 
 jobs:
   plan:
-    name: Plan CD
+    name: Validate release and plan images
     runs-on: ubuntu-latest
-
-    environment: rahti-dev
-
+    environment:
+      name: rahti-dev
+      deployment: false
+    timeout-minutes: 10
     outputs:
       matrix: ${{ steps.plan.outputs.matrix }}
       publish_count: ${{ steps.plan.outputs.publish_count }}
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -34,128 +34,136 @@ jobs:
         with:
           node-version: '24'
 
-      - name: Determine previous commit
+      - name: Find previous main commit
         id: base
         shell: bash
         env:
-          BEFORE_SHA: ${{ github.event.before }}
+          PREVIOUS_SHA: ${{ github.event.before }}
         run: |
-          if [[ ! "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
-            echo "::error::Invalid previous commit SHA."
+          if [[ ! "$PREVIOUS_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$PREVIOUS_SHA" =~ ^0+$ ]]; then
+            echo '::error::Cannot determine the previous main commit.'
             exit 1
           fi
-
-          if ! git cat-file -e "$BEFORE_SHA^{commit}"; then
-            echo "::error::Previous commit is not available."
-            exit 1
-          fi
-
-          echo "sha=$BEFORE_SHA" >> "$GITHUB_OUTPUT"
+          git cat-file -e "$PREVIOUS_SHA^{commit}"
+          echo "sha=$PREVIOUS_SHA" >> "$GITHUB_OUTPUT"
 
       - name: Validate component versions
         env:
           PR_BASE_SHA: ${{ steps.base.outputs.sha }}
         run: node .github/scripts/check-version.mjs
 
-      - name: Plan Docker image publishing
+      - name: Find missing required Docker Hub tags
+        id: missing
+        shell: bash
+        env:
+          NAMESPACE: ${{ vars.DOCKERHUB_USERNAME }}
+        run: |
+          if [ -z "$NAMESPACE" ]; then
+            echo '::error::DOCKERHUB_USERNAME is not configured.'
+            exit 1
+          fi
+          missing=()
+          for component in frontend backend booking login payment movies; do
+            if [ "$component" = frontend ] || [ "$component" = backend ]; then
+              directory="$component"
+            else
+              directory="services/$component"
+            fi
+            version=$(tr -d '\r\n' < "$directory/VERSION")
+            url="https://hub.docker.com/v2/namespaces/$NAMESPACE/repositories/rio-theaters-$component/tags/$version"
+            status=$(curl --silent --show-error --location --max-time 30 --retry 3 \
+              --output /dev/null --write-out '%{http_code}' "$url")
+            case "$status" in
+              200) echo "Present: $component:$version" ;;
+              404) missing+=("$component"); echo "Missing: $component:$version" ;;
+              *) echo "::error::Docker Hub returned HTTP $status for $component:$version"; exit 1 ;;
+            esac
+          done
+          echo "names=${missing[*]}" >> "$GITHUB_OUTPUT"
+
+      - name: Plan images
         id: plan
         env:
           CD_BASE_SHA: ${{ steps.base.outputs.sha }}
+          CD_MISSING_COMPONENTS: ${{ steps.missing.outputs.names }}
           DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
         run: node .github/scripts/plan-cd.mjs
 
-      - name: Write publishing summary
+      - name: Record publishing plan
         env:
-          PUBLISH_COUNT: ${{ steps.plan.outputs.publish_count }}
+          COUNT: ${{ steps.plan.outputs.publish_count }}
         run: |
-          echo "## Docker publishing plan" >> "$GITHUB_STEP_SUMMARY"
-          echo "Components requiring new images: $PUBLISH_COUNT" >> "$GITHUB_STEP_SUMMARY"
+          echo "Images to publish: $COUNT" >> "$GITHUB_STEP_SUMMARY"
 
   publish:
     name: Publish ${{ matrix.name }}
     needs: plan
-
-    if: needs.plan.outputs.publish_count != '0'
-
+    if: ${{ needs.plan.outputs.publish_count != '0' }}
     runs-on: ubuntu-latest
-
-    environment: rahti-dev
-
+    environment:
+      name: rahti-dev
+      deployment: false
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       max-parallel: 3
-
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
-
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
-      - name: Log in to Docker Hub
+      - name: Authenticate with Docker Hub
         uses: docker/login-action@v4
         with:
           username: ${{ vars.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Check existing Docker image
-        id: image
+      - name: Check image tag and retry provenance
+        id: check
         shell: bash
         env:
           IMAGE: ${{ matrix.image }}
           COMPONENT: ${{ matrix.name }}
           VERSION: ${{ matrix.version }}
-          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+          NAMESPACE: ${{ vars.DOCKERHUB_USERNAME }}
         run: |
-          url="https://hub.docker.com/v2/namespaces/$DOCKERHUB_USERNAME/repositories/rio-theaters-$COMPONENT/tags/$VERSION"
-
-          status=$(curl \
-            --silent \
-            --show-error \
-            --location \
-            --max-time 30 \
-            --retry 3 \
-            --output /dev/null \
-            --write-out '%{http_code}' \
-            "$url")
+          url="https://hub.docker.com/v2/namespaces/$NAMESPACE/repositories/rio-theaters-$COMPONENT/tags/$VERSION"
+          status=$(curl --silent --show-error --location --max-time 30 --retry 3 \
+            --output /dev/null --write-out '%{http_code}' "$url")
 
           case "$status" in
             404)
-              echo "Docker image $IMAGE does not exist."
-              echo "publish=true" >> "$GITHUB_OUTPUT"
+              echo 'publish=true' >> "$GITHUB_OUTPUT"
               ;;
-
             200)
-              echo "Docker image $IMAGE already exists."
+              image_info=$(docker buildx imagetools inspect "$IMAGE" --format '{{json .Image}}')
+              revision=$(jq -r '
+                if .config? then
+                  .config.Labels["org.opencontainers.image.revision"] // ""
+                else
+                  .["linux/amd64"].config.Labels["org.opencontainers.image.revision"] // ""
+                end
+              ' <<< "$image_info")
 
-              labels=$(docker buildx imagetools inspect \
-                "$IMAGE" \
-                --format '{{json .Image.Config.Labels}}')
-
-              revision=$(echo "$labels" | jq -r '."org.opencontainers.image.revision" // empty')
-
-              if [ "$revision" = "$GITHUB_SHA" ]; then
-                echo "Existing image matches this commit."
-                echo "Reusing previously published image."
-                echo "publish=false" >> "$GITHUB_OUTPUT"
-              else
-                echo "::error::Image tag already exists but does not match this commit."
-                echo "::error::Existing revision: ${revision:-unknown}"
-                echo "::error::Expected revision: $GITHUB_SHA"
+              if [ "$revision" != "$GITHUB_SHA" ]; then
+                echo "::error::Tag $IMAGE already exists for a different or unknown commit."
                 exit 1
               fi
-              ;;
 
+              echo "Reusing $IMAGE from this commit."
+              echo 'publish=false' >> "$GITHUB_OUTPUT"
+              ;;
             *)
-              echo "::error::Docker Hub returned unexpected HTTP status $status."
+              echo "::error::Docker Hub tag lookup returned HTTP $status for $IMAGE."
               exit 1
               ;;
           esac
 
-      - name: Build and publish Docker image
-        if: steps.image.outputs.publish == 'true'
+      - name: Build and publish image
+        if: steps.check.outputs.publish == 'true'
         uses: docker/build-push-action@v7
         with:
           context: ${{ matrix.directory }}
@@ -163,21 +171,267 @@ jobs:
           platforms: linux/amd64
           push: true
           tags: docker.io/${{ matrix.image }}
-
           labels: |
             org.opencontainers.image.title=Rio Theaters ${{ matrix.name }}
             org.opencontainers.image.version=${{ matrix.version }}
             org.opencontainers.image.revision=${{ github.sha }}
             org.opencontainers.image.source=https://github.com/${{ github.repository }}
 
-      - name: Write publishing result
-        if: success()
+      - name: Record publishing result
         env:
           IMAGE: ${{ matrix.image }}
-          PUBLISH: ${{ steps.image.outputs.publish }}
+          PUBLISH: ${{ steps.check.outputs.publish }}
         run: |
-          if [ "$PUBLISH" = "true" ]; then
+          if [ "$PUBLISH" = 'true' ]; then
             echo "Published $IMAGE" >> "$GITHUB_STEP_SUMMARY"
           else
             echo "Reused $IMAGE" >> "$GITHUB_STEP_SUMMARY"
           fi
+
+  deploy:
+    name: Deploy to Rahti
+    needs:
+      - plan
+      - publish
+    if: ${{ !cancelled() && needs.plan.result == 'success' && (needs.publish.result == 'success' || needs.publish.result == 'skipped') }}
+    runs-on: ubuntu-latest
+    environment:
+      name: rahti-dev
+      url: ${{ vars.RAHTI_APP_URL }}
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Authenticate with Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Verify all six image tags exist
+        shell: bash
+        env:
+          NAMESPACE: ${{ vars.DOCKERHUB_USERNAME }}
+        run: |
+          for component in frontend backend booking login payment movies; do
+            if [ "$component" = frontend ] || [ "$component" = backend ]; then
+              directory="$component"
+            else
+              directory="services/$component"
+            fi
+
+            version=$(tr -d '\r\n' < "$directory/VERSION")
+            image="docker.io/$NAMESPACE/rio-theaters-$component:$version"
+
+            echo "Checking $image"
+            if ! docker buildx imagetools inspect "$image" > /dev/null; then
+              echo "::error::Required image is missing or unavailable: $image"
+              exit 1
+            fi
+          done
+
+      - name: Install OpenShift CLI
+        uses: redhat-actions/openshift-tools-installer@v2
+        with:
+          oc: '4'
+
+      - name: Authenticate with Rahti
+        uses: redhat-actions/oc-login@v2
+        with:
+          openshift_server_url: ${{ vars.RAHTI_SERVER }}
+          openshift_token: ${{ secrets.RAHTI_TOKEN }}
+          namespace: ${{ vars.RAHTI_NAMESPACE }}
+
+      - name: Generate and validate deployment manifests
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+        run: |
+          node k8s/rahti/deploy.mjs --print > "$RUNNER_TEMP/deploy.json"
+          oc apply --dry-run=server -f "$RUNNER_TEMP/deploy.json"
+
+      - name: Deploy application components
+        env:
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+        run: node k8s/rahti/deploy.mjs
+
+      - name: Verify deployment rollout
+        env:
+          NAMESPACE: ${{ vars.RAHTI_NAMESPACE }}
+        run: |
+          for component in frontend backend booking login payment movies; do
+            oc -n "$NAMESPACE" rollout status "deployment/$component" --timeout=300s
+            oc -n "$NAMESPACE" wait --for=condition=Available "deployment/$component" --timeout=300s
+          done
+
+      - name: Verify public application health
+        env:
+          APP_URL: ${{ vars.RAHTI_APP_URL }}
+        run: |
+          curl --fail --silent --show-error --retry 5 --retry-all-errors \
+            --retry-delay 5 --max-time 20 "${APP_URL%/}/api/health"
+          curl --fail --silent --show-error --retry 5 --retry-all-errors \
+            --retry-delay 5 --max-time 20 "${APP_URL%/}/api/live"
+
+  notify:
+    name: Notify team and create issue on CD failure
+    needs:
+      - plan
+      - publish
+      - deploy
+    if: ${{ always() && (needs.plan.result == 'failure' || needs.publish.result == 'failure' || needs.deploy.result == 'failure') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    timeout-minutes: 15
+    steps:
+      - name: Prepare team alert
+        id: alert
+        env:
+          REPOSITORY_VARIABLES: ${{ toJSON(vars) }}
+          TEAM_USERNAMES: ${{ vars.CD_TEAM_USERNAMES }}
+          PLAN_RESULT: ${{ needs.plan.result }}
+          PUBLISH_RESULT: ${{ needs.publish.result }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+        run: |
+          node --input-type=module <<'NODE'
+          import { appendFileSync, writeFileSync } from 'node:fs';
+
+          const variables = JSON.parse(process.env.REPOSITORY_VARIABLES || '{}');
+          const users = [...new Set(String(process.env.TEAM_USERNAMES || '')
+            .split(/[\s,;]+/).map(value => value.trim()).filter(Boolean))];
+          const missing = [];
+          const emails = new Set();
+
+          for (const username of users) {
+            const key = username.replaceAll('-', '_').toUpperCase();
+            const address = variables[key];
+            if (/^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/.test(String(address || ''))) {
+              emails.add(String(address));
+            } else {
+              missing.push(username);
+            }
+          }
+
+          if (users.length === 0) missing.push('CD_TEAM_USERNAMES not configured');
+          if (emails.size === 0) emails.add('riotheaters@gmail.com');
+
+          appendFileSync(process.env.GITHUB_OUTPUT, `recipients=${[...emails].join(',')}\n`);
+          appendFileSync(process.env.GITHUB_OUTPUT, `missing=${missing.join(',')}\n`);
+
+          if (missing.length) {
+            console.warn(`Missing notification addresses for: ${missing.join(', ')}`);
+            appendFileSync(process.env.GITHUB_STEP_SUMMARY, `Missing developer email mappings: ${missing.join(', ')}\n`);
+          }
+
+          const url = `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`;
+          const details = [
+            'Rio Theaters CD failed.',
+            `Repository: ${process.env.GITHUB_REPOSITORY}`,
+            `Branch: ${process.env.GITHUB_REF_NAME}`,
+            `Commit: ${process.env.GITHUB_SHA}`,
+            `Triggered by: ${process.env.GITHUB_ACTOR}`,
+            `Plan: ${process.env.PLAN_RESULT}`,
+            `Publish: ${process.env.PUBLISH_RESULT}`,
+            `Deploy: ${process.env.DEPLOY_RESULT}`,
+            `Workflow: ${url}`,
+            ...(missing.length ? [`Missing recipient mappings: ${missing.join(', ')}`] : []),
+            '',
+            'Please inspect the failed job and fix the deployment through a new PR.'
+          ];
+
+          writeFileSync('cd-alert.txt', details.join('\n') + '\n');
+          writeFileSync('cd-issue.md', [
+            'Automated CD failure detected.',
+            '',
+            `- Commit: \`${process.env.GITHUB_SHA}\``,
+            `- Workflow: ${url}`,
+            `- Plan: ${process.env.PLAN_RESULT}`,
+            `- Publish: ${process.env.PUBLISH_RESULT}`,
+            `- Deploy: ${process.env.DEPLOY_RESULT}`,
+            '',
+            'Investigate the failing job and fix through the normal CI and PR process.'
+          ].join('\n') + '\n');
+          NODE
+
+      - name: Create or reuse deployment failure issue
+        id: issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="[CD failure] Run $GITHUB_RUN_ID"
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state all --limit 1000 \
+            --search "in:title Run $GITHUB_RUN_ID" --json title,url | jq -r --arg title "$title" \
+            '.[] | select(.title == $title) | .url' | head -n 1)
+
+          if [ -n "$existing" ]; then
+            issue_url="$existing"
+          else
+            issue_url=$(gh issue create --repo "$GITHUB_REPOSITORY" \
+              --title "$title" --body-file cd-issue.md)
+          fi
+
+          echo "url=$issue_url" >> "$GITHUB_OUTPUT"
+          echo "Tracking issue: $issue_url" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Add failure issue to GitHub Project
+        if: ${{ steps.issue.outputs.url != '' }}
+        env:
+          GH_TOKEN: ${{ secrets.PROJECT_TOKEN }}
+          PROJECT_OWNER: ${{ vars.CD_PROJECT_OWNER }}
+          PROJECT_NUMBER: ${{ vars.CD_PROJECT_NUMBER }}
+          ISSUE_URL: ${{ steps.issue.outputs.url }}
+        run: |
+          if [ -z "$GH_TOKEN" ] || [ -z "$PROJECT_OWNER" ] || [ -z "$PROJECT_NUMBER" ]; then
+            echo '::error::PROJECT_TOKEN, CD_PROJECT_OWNER and CD_PROJECT_NUMBER are required to link failure issues.'
+            exit 1
+          fi
+          project_items=$(gh project item-list "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" \
+            --limit 1000 --format json)
+          existing=$(jq -r '.items[].content.url // empty' <<< "$project_items" | grep -Fx "$ISSUE_URL" || true)
+          if [ -n "$existing" ]; then
+            echo "Issue already exists in Project: $ISSUE_URL"
+          else
+            gh project item-add "$PROJECT_NUMBER" --owner "$PROJECT_OWNER" --url "$ISSUE_URL"
+          fi
+
+      - name: Append issue link to email
+        if: always()
+        env:
+          ISSUE_URL: ${{ steps.issue.outputs.url }}
+        run: |
+          if [ -n "$ISSUE_URL" ]; then
+            printf '\nTracking issue: %s\n' "$ISSUE_URL" >> cd-alert.txt
+          fi
+
+      - name: Send CD failure email to all developers
+        if: always()
+        uses: dawidd6/action-send-mail@v23
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          from: 'Rio Theaters CI/CD <riotheaters@gmail.com>'
+          to: riotheaters@gmail.com
+          bcc: ${{ steps.alert.outputs.recipients || 'riotheaters@gmail.com' }}
+          subject: '[Rio Theaters] CD failed - run ${{ github.run_id }}'
+          body: file://cd-alert.txt
+
+      - name: Verify all team emails were configured
+        if: ${{ always() && steps.alert.outputs.missing != '' }}
+        env:
+          MISSING: ${{ steps.alert.outputs.missing }}
+        run: |
+          echo "::error::Missing email mappings for: $MISSING"
+          exit 1
