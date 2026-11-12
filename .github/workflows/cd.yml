@@ -1,0 +1,183 @@
+name: CD
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cd-rahti-dev
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    name: Plan CD
+    runs-on: ubuntu-latest
+
+    environment: rahti-dev
+
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      publish_count: ${{ steps.plan.outputs.publish_count }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Determine previous commit
+        id: base
+        shell: bash
+        env:
+          BEFORE_SHA: ${{ github.event.before }}
+        run: |
+          if [[ ! "$BEFORE_SHA" =~ ^[0-9a-f]{40}$ ]] || [[ "$BEFORE_SHA" =~ ^0+$ ]]; then
+            echo "::error::Invalid previous commit SHA."
+            exit 1
+          fi
+
+          if ! git cat-file -e "$BEFORE_SHA^{commit}"; then
+            echo "::error::Previous commit is not available."
+            exit 1
+          fi
+
+          echo "sha=$BEFORE_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Validate component versions
+        env:
+          PR_BASE_SHA: ${{ steps.base.outputs.sha }}
+        run: node .github/scripts/check-version.mjs
+
+      - name: Plan Docker image publishing
+        id: plan
+        env:
+          CD_BASE_SHA: ${{ steps.base.outputs.sha }}
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+        run: node .github/scripts/plan-cd.mjs
+
+      - name: Write publishing summary
+        env:
+          PUBLISH_COUNT: ${{ steps.plan.outputs.publish_count }}
+        run: |
+          echo "## Docker publishing plan" >> "$GITHUB_STEP_SUMMARY"
+          echo "Components requiring new images: $PUBLISH_COUNT" >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: Publish ${{ matrix.name }}
+    needs: plan
+
+    if: needs.plan.outputs.publish_count != '0'
+
+    runs-on: ubuntu-latest
+
+    environment: rahti-dev
+
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v4
+        with:
+          username: ${{ vars.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Check existing Docker image
+        id: image
+        shell: bash
+        env:
+          IMAGE: ${{ matrix.image }}
+          COMPONENT: ${{ matrix.name }}
+          VERSION: ${{ matrix.version }}
+          DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USERNAME }}
+        run: |
+          url="https://hub.docker.com/v2/namespaces/$DOCKERHUB_USERNAME/repositories/rio-theaters-$COMPONENT/tags/$VERSION"
+
+          status=$(curl \
+            --silent \
+            --show-error \
+            --location \
+            --max-time 30 \
+            --retry 3 \
+            --output /dev/null \
+            --write-out '%{http_code}' \
+            "$url")
+
+          case "$status" in
+            404)
+              echo "Docker image $IMAGE does not exist."
+              echo "publish=true" >> "$GITHUB_OUTPUT"
+              ;;
+
+            200)
+              echo "Docker image $IMAGE already exists."
+
+              labels=$(docker buildx imagetools inspect \
+                "$IMAGE" \
+                --format '{{json .Image.Config.Labels}}')
+
+              revision=$(echo "$labels" | jq -r '."org.opencontainers.image.revision" // empty')
+
+              if [ "$revision" = "$GITHUB_SHA" ]; then
+                echo "Existing image matches this commit."
+                echo "Reusing previously published image."
+                echo "publish=false" >> "$GITHUB_OUTPUT"
+              else
+                echo "::error::Image tag already exists but does not match this commit."
+                echo "::error::Existing revision: ${revision:-unknown}"
+                echo "::error::Expected revision: $GITHUB_SHA"
+                exit 1
+              fi
+              ;;
+
+            *)
+              echo "::error::Docker Hub returned unexpected HTTP status $status."
+              exit 1
+              ;;
+          esac
+
+      - name: Build and publish Docker image
+        if: steps.image.outputs.publish == 'true'
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.directory }}
+          file: ${{ matrix.directory }}/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: docker.io/${{ matrix.image }}
+
+          labels: |
+            org.opencontainers.image.title=Rio Theaters ${{ matrix.name }}
+            org.opencontainers.image.version=${{ matrix.version }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+
+      - name: Write publishing result
+        if: success()
+        env:
+          IMAGE: ${{ matrix.image }}
+          PUBLISH: ${{ steps.image.outputs.publish }}
+        run: |
+          if [ "$PUBLISH" = "true" ]; then
+            echo "Published $IMAGE" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Reused $IMAGE" >> "$GITHUB_STEP_SUMMARY"
+          fi
