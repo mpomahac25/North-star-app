@@ -111,6 +111,14 @@ function createDeployment(component) {
         environment.BACKEND_URL = `http://backend:${getPort(backend)}`;
     }
 
+    if (component.name === 'backend') {
+        const movies = components.find(
+            item => item.name === 'movies'
+        );
+
+        environment.MOVIES_API_URL = `http://movies:${getPort(movies)}`;
+    }
+
     return {
         apiVersion: 'apps/v1',
         kind: 'Deployment',
@@ -152,12 +160,26 @@ function createDeployment(component) {
                                 }
                             ],
 
-                            env: Object.entries(environment).map(
-                                ([name, value]) => ({
-                                    name,
-                                    value
-                                })
-                            ),
+                            env: [
+                                ...Object.entries(environment).map(
+                                    ([name, value]) => ({
+                                        name,
+                                        value
+                                    })
+                                ),
+
+                                ...(component.name === 'movies'
+                                    ? [{
+                                        name: 'OMDB_API_KEY',
+                                        valueFrom: {
+                                            secretKeyRef: {
+                                                name: 'rio-omdb',
+                                                key: 'OMDB_API_KEY'
+                                            }
+                                        }
+                                    }]
+                                    : [])
+                            ],
 
                             livenessProbe: {
                                 httpGet: {
