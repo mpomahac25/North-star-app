@@ -33,6 +33,34 @@ async function mockSearch(page, body = searchResults, status = 200) {
     );
 }
 
+function createPageResults(pageNumber, totalResults = 25) {
+    const start = (pageNumber - 1) * 10;
+    const count = Math.max(0, Math.min(10, totalResults - start));
+
+    return {
+        Search: Array.from({ length: count }, (_, index) => {
+            const number = start + index + 1;
+
+            return {
+                imdbID: `tt${1000000 + number}`,
+                Title: `Movie ${number}`,
+                Year: "2026",
+                Poster: poster,
+            };
+        }),
+        totalResults: String(totalResults),
+        Response: "True",
+    };
+}
+
+async function fulfillJson(route, body, status = 200) {
+    await route.fulfill({
+        status,
+        contentType: "application/json",
+        body: JSON.stringify(body),
+    });
+}
+
 test.describe("Explore Page", () => {
     test("Displays the default movie grid and filter tabs", async ({ page }) => {
         let receivedQuery = null;
@@ -433,5 +461,339 @@ test.describe("Explore Page", () => {
         await expect(
             page.getByRole("heading", { name: "Drive", exact: true }),
         ).toHaveCount(0);
+    });
+
+    test("Appends movies from subsequent pages without replacing previous results", async ({ page }) => {
+        const requestedPages = [];
+
+        await page.route(
+            (url) => url.pathname === "/api/movies/search",
+            async (route) => {
+                const url = new URL(route.request().url());
+                const pageNumber = Number(url.searchParams.get("page"));
+
+                requestedPages.push(pageNumber);
+
+                await fulfillJson(route, createPageResults(pageNumber, 25));
+            },
+        );
+
+        await page.goto("/explore?search=movie");
+
+        const cards = page.locator(".explore-card");
+        const loadMore = page.getByRole("button", { name: "Show more movies" });
+
+        await expect(cards).toHaveCount(10);
+        await expect(loadMore).toBeVisible();
+
+        await loadMore.click();
+
+        await expect(cards).toHaveCount(20);
+
+        await expect(
+            cards.locator(".explore-movie-title"),
+        ).toHaveText(
+            Array.from({ length: 20 }, (_, index) => `Movie ${index + 1}`),
+        );
+
+        await loadMore.click();
+
+        await expect(cards).toHaveCount(25);
+
+        await expect(
+            cards.locator(".explore-movie-title"),
+        ).toHaveText(
+            Array.from({ length: 25 }, (_, index) => `Movie ${index + 1}`),
+        );
+
+        await expect(loadMore).toHaveCount(0);
+
+        expect(requestedPages.filter((number) => number > 1)).toEqual([2, 3]);
+    });
+
+    test("Prevents additional loading requests while a page is being fetched", async ({ page }) => {
+        let releasePage2;
+        let page2Requests = 0;
+
+        const pendingResponse = new Promise((resolve) => {
+            releasePage2 = resolve;
+        });
+
+        await page.route(
+            (url) => url.pathname === "/api/movies/search",
+            async (route) => {
+                const url = new URL(route.request().url());
+                const pageNumber = Number(url.searchParams.get("page"));
+
+                if (pageNumber === 2) {
+                    page2Requests++;
+                    await pendingResponse;
+                }
+
+                await fulfillJson(route, createPageResults(pageNumber, 20));
+            },
+        );
+
+        await page.goto("/explore?search=movie");
+
+        const cards = page.locator(".explore-card");
+
+        await expect(cards).toHaveCount(10);
+
+        await page.getByRole("button", { name: "Show more movies" }).click();
+
+        try {
+            await expect(
+                page.getByRole("button", { name: "Loading..." }),
+            ).toBeDisabled();
+
+            await expect(cards).toHaveCount(10);
+        } finally {
+            releasePage2();
+        }
+
+        await expect(cards).toHaveCount(20);
+
+        expect(page2Requests).toBe(1);
+    });
+
+    test("Resets pagination and replaces previous results when searching again", async ({ page }) => {
+        await page.setViewportSize({
+            width: 1280,
+            height: 800,
+        });
+
+        const requests = [];
+
+        await page.route(
+            (url) => url.pathname === "/api/movies/search",
+            async (route) => {
+                const url = new URL(route.request().url());
+
+                const query = url.searchParams.get("q");
+                const pageNumber = Number(url.searchParams.get("page"));
+
+                requests.push({ query, pageNumber });
+
+                const results = query === "dune"
+                    ? {
+                        Search: [{
+                            imdbID: "tt1160419",
+                            Title: "Dune",
+                            Year: "2021",
+                            Poster: poster,
+                        }],
+                        totalResults: "1",
+                        Response: "True",
+                    }
+                    : createPageResults(pageNumber, 20);
+
+                await fulfillJson(route, results);
+            },
+        );
+
+        await page.goto("/explore?search=movie");
+
+        const cards = page.locator(".explore-card");
+
+        await expect(cards).toHaveCount(10);
+
+        await page.getByRole("button", { name: "Show more movies" }).click();
+
+        await expect(cards).toHaveCount(20);
+
+        const searchInput = page.locator(".top-nav-search input");
+
+        await searchInput.fill("Dune");
+        await searchInput.press("Enter");
+
+        await expect(page).toHaveURL(/\/explore\?search=dune$/);
+
+        await expect(cards).toHaveCount(1);
+
+        await expect(
+            page.getByRole("heading", { name: "Dune", exact: true }),
+        ).toBeVisible();
+
+        await expect(
+            page.getByRole("heading", { name: "Movie 1" }),
+        ).toHaveCount(0);
+
+        await expect(
+            page.getByRole("button", { name: "Show more movies" }),
+        ).toHaveCount(0);
+
+        expect(requests.at(-1)).toEqual({
+            query: "dune",
+            pageNumber: 1,
+        });
+    });
+
+    test("Switches categories without mixing results or retaining pagination", async ({ page }) => {
+        const searchRequests = [];
+        let showingRequests = 0;
+
+        await page.route(
+            (url) => url.pathname === "/api/movies/search",
+            async (route) => {
+                const url = new URL(route.request().url());
+                const pageNumber = Number(url.searchParams.get("page"));
+
+                searchRequests.push(pageNumber);
+
+                await fulfillJson(route, createPageResults(pageNumber, 20));
+            },
+        );
+
+        await page.route(
+            (url) => url.pathname === "/api/movies/coming-soon",
+            async (route) => {
+                showingRequests++;
+
+                await fulfillJson(route, [
+                    {
+                        imdbId: "tt9990001",
+                        title: "Featured Film",
+                        year: "2026",
+                        poster: null,
+                    },
+                ]);
+            },
+        );
+
+        await page.goto("/explore?search=movie");
+
+        const cards = page.locator(".explore-card");
+
+        await expect(cards).toHaveCount(10);
+
+        await page.getByRole("button", { name: "Show more movies" }).click();
+
+        await expect(cards).toHaveCount(20);
+
+        await page.getByRole("button", { name: "Now showing" }).click();
+
+        await expect(cards).toHaveCount(1);
+
+        await expect(
+            page.getByRole("heading", { name: "Featured Film" }),
+        ).toBeVisible();
+
+        await expect(
+            page.getByRole("heading", { name: "Movie 1" }),
+        ).toHaveCount(0);
+
+        await expect(
+            page.getByRole("button", { name: "Show more movies" }),
+        ).toHaveCount(0);
+
+        expect(showingRequests).toBe(1);
+
+        await page.getByRole("button", { name: "All movies" }).click();
+
+        await expect(cards).toHaveCount(10);
+
+        await expect(
+            page.getByRole("heading", { name: "Featured Film" }),
+        ).toHaveCount(0);
+
+        await expect(
+            page.getByRole("button", { name: "Show more movies" }),
+        ).toBeVisible();
+
+        expect(searchRequests.at(-1)).toBe(1);
+    });
+
+    test("Preserves special characters in movie searches", async ({ page }) => {
+        let receivedParameters = null;
+
+        await page.route(
+            (url) => url.pathname === "/api/movies/search",
+            async (route) => {
+                const url = new URL(route.request().url());
+
+                receivedParameters = {
+                    query: url.searchParams.get("q"),
+                    page: url.searchParams.get("page"),
+                    type: url.searchParams.get("type"),
+                };
+
+                await fulfillJson(route, {
+                    Search: [],
+                    totalResults: "0",
+                    Response: "True",
+                });
+            },
+        );
+
+        await page.goto(
+            `/explore?search=${encodeURIComponent("Fast & Furious")}`,
+        );
+
+        await expect(
+            page.getByText('No movies found for "Fast & Furious".'),
+        ).toBeVisible();
+
+        expect(receivedParameters).toEqual({
+            query: "Fast & Furious",
+            page: "1",
+            type: "movie",
+        });
+    });
+
+    test("Preserves loaded movies and retries a failed pagination request", async ({ page }) => {
+        const requestedPages = [];
+        let page2Attempts = 0;
+
+        await page.route(
+            (url) => url.pathname === "/api/movies/search",
+            async (route) => {
+                const url = new URL(route.request().url());
+                const pageNumber = Number(url.searchParams.get("page"));
+
+                requestedPages.push(pageNumber);
+
+                if (pageNumber === 2) {
+                    page2Attempts++;
+
+                    if (page2Attempts === 1) {
+                        await fulfillJson(route, {
+                            error: {
+                                code: "MOVIES_SERVICE_UNAVAILABLE",
+                                message: "The movies service is unavailable.",
+                            },
+                        }, 503);
+
+                        return;
+                    }
+                }
+
+                await fulfillJson(route, createPageResults(pageNumber, 20));
+            },
+        );
+
+        await page.goto("/explore?search=movie");
+
+        const cards = page.locator(".explore-card");
+
+        await expect(cards).toHaveCount(10);
+
+        await page.getByRole("button", { name: "Show more movies" }).click();
+
+        await expect(page.getByRole("alert")).toBeVisible();
+
+        await expect(cards).toHaveCount(10);
+
+        const retryButton = page.getByRole("button", {
+            name: /show more|retry|try again/i,
+        });
+
+        await expect(retryButton).toBeVisible();
+
+        await retryButton.click();
+
+        await expect(cards).toHaveCount(20);
+
+        expect(requestedPages.filter((number) => number > 1)).toEqual([2, 2]);
     });
 });
