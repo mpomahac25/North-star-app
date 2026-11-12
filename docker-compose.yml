@@ -70,6 +70,7 @@ services:
       <<: *db-environment
       BACKEND_PORT: ${BACKEND_PORT:-3001}
       MOVIES_API_URL: http://movies:${MOVIES_API_PORT:-3005}
+      MOVIES_CATALOG_WRITE_TOKEN: ${MOVIES_CATALOG_WRITE_TOKEN:-}
 
     # Wait until the database is healthy before starting
     depends_on:

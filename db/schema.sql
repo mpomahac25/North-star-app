@@ -16,9 +16,11 @@ CREATE TABLE age_ratings (
 -- 3. MOVIES
 CREATE TABLE movies (
     id SERIAL PRIMARY KEY,
+    imdb_id VARCHAR(20) UNIQUE,
     title VARCHAR(255) NOT NULL,
     description TEXT,
     duration_minutes INTEGER NOT NULL CHECK (duration_minutes > 0),
+    release_year SMALLINT CHECK (release_year BETWEEN 1888 AND 2100),
     age_rating_id INTEGER REFERENCES age_ratings(id),
     poster_url TEXT
 );
