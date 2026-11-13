@@ -481,11 +481,12 @@ jobs:
           DATABASE_STATUS: ${{ needs.database-tests.result }}
           DATABASE_CHANGED: ${{ needs.detect-database-changes.outputs.database }}
           REPORT_STATUS: ${{ needs.report-tests.result }}
+          BUILD_STATUS: ${{ needs.container-builds.result }}
 
         run: |
           failed=0
 
-          for status in "$DETECT_STATUS" "$VERSION_STATUS" "$JEST_STATUS" "$FRONTEND_STATUS" "$PLAYWRIGHT_STATUS" "$REPORT_STATUS"; do
+          for status in "$DETECT_STATUS" "$VERSION_STATUS" "$JEST_STATUS" "$FRONTEND_STATUS" "$PLAYWRIGHT_STATUS" "$REPORT_STATUS" "$BUILD_STATUS"; do
             if [ "$status" != "success" ]; then
               echo "Required job result: $status"
               failed=1
