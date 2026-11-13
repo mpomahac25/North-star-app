@@ -178,6 +178,8 @@ test.describe("Explore Page", () => {
         await expect(page.getByText('No movies found for "nonexistent".')).toBeVisible();
 
         await expect(page.locator(".explore-card")).toHaveCount(0);
+
+        await expect(page.locator(".pagination-container")).toHaveCount(0);
     });
 
     test("Displays a loading state while searching", async ({ page }) => {
@@ -209,6 +211,8 @@ test.describe("Explore Page", () => {
         releaseResponse();
 
         await expect(page.locator(".explore-card")).toHaveCount(2);
+
+        await expect(page.locator(".pagination-container")).toHaveCount(0);
 
         await expect(page.getByRole("status").filter({ hasText: "Loading movies" })).toHaveCount(0);
     });
@@ -560,7 +564,11 @@ test.describe("Explore Page", () => {
                 const url = new URL(route.request().url());
                 const pageNumber = Number(url.searchParams.get("page"));
 
-                requestedPages.push(pageNumber);
+                requestedPages.push({
+                    query: url.searchParams.get("q"),
+                    page: pageNumber,
+                    type: url.searchParams.get("type"),
+                });
 
                 await fulfillJson(route, createPageResults(pageNumber, 25));
             },
@@ -574,17 +582,29 @@ test.describe("Explore Page", () => {
             Array.from({ length: 10 }, (_, index) => `Movie ${index + 1}`),
         );
 
+        await expect(
+            page.locator(".pagination-container .btn-page.active"),
+        ).toHaveText("1");
+
         await pageButton(page, 2).click();
 
         await expect(titles).toHaveText(
             Array.from({ length: 10 }, (_, index) => `Movie ${index + 11}`),
         );
 
+        await expect(
+            page.locator(".pagination-container .btn-page.active"),
+        ).toHaveText("2");
+
         await pageButton(page, 3).click();
 
         await expect(titles).toHaveText(
             Array.from({ length: 5 }, (_, index) => `Movie ${index + 21}`),
         );
+
+        await expect(
+            page.locator(".pagination-container .btn-page.active"),
+        ).toHaveText("3");
 
         await expect(pageButton(page, 4)).toHaveCount(0);
 
@@ -594,9 +614,133 @@ test.describe("Explore Page", () => {
             Array.from({ length: 10 }, (_, index) => `Movie ${index + 1}`),
         );
 
+        await expect(
+            page.locator(".pagination-container .btn-page.active"),
+        ).toHaveText("1");
+
         await expect(page).toHaveURL(/\/explore\?search=movie$/);
 
-        expect(requestedPages.filter((number) => number > 1)).toEqual([2, 3]);
+        expect(
+            requestedPages.filter(({ page: pageNumber }) => pageNumber > 1),
+        ).toEqual([
+            {
+                query: "movie",
+                page: 2,
+                type: "movie",
+            },
+            {
+                query: "movie",
+                page: 3,
+                type: "movie",
+            },
+        ]);
+    });
+
+    test("Navigates correctly through a large paginated result set", async ({ page }) => {
+        await page.route(
+            (url) => url.pathname === "/api/movies/search",
+            async (route) => {
+                const url = new URL(route.request().url());
+                const pageNumber = Number(url.searchParams.get("page"));
+
+                await fulfillJson(route, createPageResults(pageNumber, 250));
+            },
+        );
+
+        await page.goto("/explore?search=movie");
+
+        const titles = page.locator(".explore-card .explore-movie-title");
+
+        await expect(titles).toHaveText(
+            Array.from({ length: 10 }, (_, index) => `Movie ${index + 1}`),
+        );
+
+        await expect(pageButton(page, 25)).toBeVisible();
+        await expect(pageButton(page, 12)).toHaveCount(0);
+
+        for (const pageNumber of [6, 8, 10, 12]) {
+            await pageButton(page, pageNumber).click();
+
+            await expect(titles).toHaveText(
+                Array.from(
+                    { length: 10 },
+                    (_, index) => `Movie ${(pageNumber - 1) * 10 + index + 1}`,
+                ),
+            );
+        }
+
+        await expect(pageButton(page, 1)).toBeVisible();
+        await expect(pageButton(page, 25)).toBeVisible();
+
+        await expect(page.locator(".pagination-ellipsis")).toHaveCount(2);
+
+        await pageButton(page, 25).click();
+
+        await expect(titles).toHaveText(
+            Array.from({ length: 10 }, (_, index) => `Movie ${index + 241}`),
+        );
+
+        await expect(pageButton(page, 20)).toBeVisible();
+        await expect(pageButton(page, 26)).toHaveCount(0);
+
+        await pageButton(page, 1).click();
+
+        await expect(titles).toHaveText(
+            Array.from({ length: 10 }, (_, index) => `Movie ${index + 1}`),
+        );
+    });
+
+    test("Pagination remains functional on mobile devices", async ({ page }) => {
+        await page.setViewportSize({
+            width: 390,
+            height: 844,
+        });
+
+        await page.route(
+            (url) => url.pathname === "/api/movies/search",
+            async (route) => {
+                const url = new URL(route.request().url());
+                const pageNumber = Number(url.searchParams.get("page"));
+
+                await fulfillJson(route, createPageResults(pageNumber, 250));
+            },
+        );
+
+        await page.goto("/explore?search=movie");
+
+        const titles = page.locator(".explore-card .explore-movie-title");
+
+        await expect(titles).toHaveText(
+            Array.from({ length: 10 }, (_, index) => `Movie ${index + 1}`),
+        );
+
+        await expect(pageButton(page, 2)).toBeVisible();
+
+        await pageButton(page, 2).click();
+
+        await expect(titles).toHaveText(
+            Array.from({ length: 10 }, (_, index) => `Movie ${index + 11}`),
+        );
+
+        await expect(pageButton(page, 25)).toBeVisible();
+
+        await pageButton(page, 25).click();
+
+        await expect(titles).toHaveText(
+            Array.from({ length: 10 }, (_, index) => `Movie ${index + 241}`),
+        );
+
+        const hasHorizontalOverflow = await page.evaluate(() => {
+            return document.documentElement.scrollWidth > window.innerWidth;
+        });
+
+        expect(hasHorizontalOverflow).toBe(false);
+
+        await pageButton(page, 1).click();
+
+        await expect(titles).toHaveText(
+            Array.from({ length: 10 }, (_, index) => `Movie ${index + 1}`),
+        );
     });
 
     test("Keeps the current movies visible while another page is loading", async ({ page }) => {
@@ -875,6 +1019,10 @@ test.describe("Explore Page", () => {
 
         await expect(page.getByRole("alert")).toBeVisible();
 
+        await expect(
+            page.locator(".pagination-container .btn-page.active"),
+        ).toHaveText("1");
+
         await expect(titles).toHaveText(
             Array.from({ length: 10 }, (_, index) => `Movie ${index + 1}`),
         );
@@ -886,6 +1034,10 @@ test.describe("Explore Page", () => {
         );
 
         await expect(page.getByRole("alert")).toHaveCount(0);
+
+        await expect(
+            page.locator(".pagination-container .btn-page.active"),
+        ).toHaveText("2");
 
         expect(requestedPages.filter((number) => number > 1)).toEqual([2, 2]);
     });
