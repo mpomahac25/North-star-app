@@ -54,7 +54,7 @@ jobs:
             base="$(git merge-base HEAD origin/main)"
           fi
 
-          if git diff --name-only "$base" HEAD -- db/ | grep -q .; then
+          if git diff --name-only "$base" HEAD -- db/ .github/workflows/ci.yml | grep -q .; then
             echo "database=true" >> "$GITHUB_OUTPUT"
           else
             echo "database=false" >> "$GITHUB_OUTPUT"
@@ -264,6 +264,8 @@ jobs:
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v6
@@ -276,6 +278,11 @@ jobs:
           node-version: '24'
           cache: pnpm
           cache-dependency-path: db/pnpm-lock.yaml
+
+      - name: Validate database migration policy
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: node db/scripts/validate-migrations.mjs
 
       - name: Install database test dependencies
         working-directory: db
@@ -303,6 +310,10 @@ jobs:
               -baselineOnMigrate=false \
               -cleanDisabled=true \
               -validateMigrationNaming=true \
+              -group=true \
+              -executeInTransaction=true \
+              -mixed=false \
+              -outOfOrder=false \
               "$@"
           }
 
@@ -313,10 +324,21 @@ jobs:
 
           node db/scripts/seed-upgrade.mjs
 
+          node db/scripts/verify-migration-data.mjs \
+              capture "$RUNNER_TEMP/rio-migration-before.json"
+
           flyway_run ci_upgrade migrate
           flyway_run ci_upgrade validate
 
+          node db/scripts/verify-migration-data.mjs \
+              verify "$RUNNER_TEMP/rio-migration-before.json"
+
           flyway_run ci_upgrade migrate
+
+      - name: Verify grouped Flyway transaction rollback
+        env:
+          DB_TEST_URL: postgresql://rio:ci_test_password@127.0.0.1:5432/rio_schema_test
+        run: node db/scripts/verify-group-rollback.mjs
 
       - name: Run database schema and migration tests
         working-directory: db
@@ -332,6 +354,49 @@ jobs:
           path: db/ctrf/ctrf-report.json
           if-no-files-found: warn
           retention-days: 14
+
+  container-builds:
+    name: Docker build - ${{ matrix.name }}
+    runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+
+      matrix:
+        include:
+          - name: Frontend
+            directory: frontend
+
+          - name: Backend
+            directory: backend
+
+          - name: Booking
+            directory: services/booking
+
+          - name: Login
+            directory: services/login
+
+          - name: Payment
+            directory: services/payment
+
+          - name: Movies
+            directory: services/movies
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Verify Docker image builds successfully
+        uses: docker/build-push-action@v7
+        with:
+          context: ${{ matrix.directory }}
+          file: ${{ matrix.directory }}/Dockerfile
+          platforms: linux/amd64
+          push: false
 
   report-tests:
     name: Consolidated Test Report
@@ -399,6 +464,7 @@ jobs:
       - playwright-tests
       - database-tests
       - report-tests
+      - container-builds
 
     runs-on: ubuntu-latest
 
