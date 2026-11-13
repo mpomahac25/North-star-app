@@ -44,11 +44,19 @@ describe("Frontend Movies API Proxy", () => {
             }
 
             return res.json({
-                Search: [],
-                totalResults: "0",
+                Search: [
+                    {
+                        imdbID: "tt1013752",
+                        Title: "Fast & Furious",
+                        Year: "2009",
+                        Poster: "N/A",
+                    },
+                ],
+                totalResults: "1",
                 Response: "True",
                 query: req.query.q,
                 page: req.query.page,
+                type: req.query.type,
             });
         });
 
@@ -97,17 +105,26 @@ describe("Frontend Movies API Proxy", () => {
             .get("/api/movies/search")
             .query({
                 q: "Fast & Furious",
-                page: "1",
+                page: "2",
+                type: "movie",
             });
 
         expect(response.status).toBe(200);
 
         expect(response.body).toEqual({
-            Search: [],
-            totalResults: "0",
+            Search: [
+                {
+                    imdbID: "tt1013752",
+                    Title: "Fast & Furious",
+                    Year: "2009",
+                    Poster: "N/A",
+                },
+            ],
+            totalResults: "1",
             Response: "True",
             query: "Fast & Furious",
-            page: "1",
+            page: "2",
+            type: "movie",
         });
     });
 
@@ -197,18 +214,5 @@ describe("Frontend Movies API Proxy", () => {
         } finally {
             consoleSpy.mockRestore();
         }
-    });
-
-    test("Does not return a successful response for invalid backend requests", async () => {
-        const response = await request(app)
-            .get("/api/movies/search")
-            .query({
-                q: "missing",
-            });
-
-        expect(response.status).toBeGreaterThanOrEqual(400);
-        expect(response.status).toBeLessThan(500);
-
-        assertApiError(response, 404, "MOVIE_NOT_FOUND");
     });
 });

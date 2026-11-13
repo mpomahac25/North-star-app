@@ -14,6 +14,22 @@
     gap: 6px;
 }
 
+.explore-title-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-back {
+    background: none;
+    border: none;
+    color: var(--text-main);
+    cursor: pointer;
+    padding: 0;
+    display: flex;
+    align-items: center;
+}
+
 .explore-title {
     font-size: 24px;
     font-weight: 700;
@@ -23,6 +39,36 @@
 .explore-subtitle {
     font-size: 13px;
     color: var(--text-muted);
+}
+
+/* Category Filter Tabs */
+.explore-tabs {
+    display: flex;
+    gap: 10px;
+    margin-top: 12px;
+}
+
+.tab-btn {
+    background-color: var(--bg-card);
+    color: var(--text-muted);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 20px;
+    padding: 8px 18px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.tab-btn:hover {
+    color: var(--text-main);
+    border-color: var(--text-muted-dark);
+}
+
+.tab-btn.active {
+    background-color: var(--red-velvet);
+    color: var(--text-main);
+    border-color: var(--red-velvet);
 }
 
 .explore-grid {
@@ -85,6 +131,70 @@
     color: var(--text-muted);
 }
 
+/* Pagination Buttons */
+.pagination-container {
+    display: flex;
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-top: 24px;
+}
+
+.btn-page {
+    background-color: var(--bg-card);
+    color: var(--text-main);
+    border: 1px solid var(--bg-card-border);
+    border-radius: 8px;
+    min-width: 40px;
+    height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-page:hover:not(:disabled) {
+    background-color: var(--search-bg);
+}
+
+.btn-page.active {
+    background-color: var(--red-velvet);
+    color: var(--text-main);
+    border-color: var(--red-velvet);
+}
+
+.btn-page:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.explore-card-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.explore-screenings {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.screening-badge {
+    background-color: var(--bg-card);
+    border: 1px solid var(--bg-card-border);
+    color: var(--gold-warm);
+    font-size: 11px;
+    font-weight: 500;
+    padding: 2px 8px;
+    border-radius: 6px;
+}
+
 /* Desktop Styles */
 @media (min-width: 768px) {
     .explore-container {
@@ -101,4 +211,16 @@
     .explore-title {
         font-size: 28px;
     }
+}
+
+.pagination-ellipsis {
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 28px;
+    height: 40px;
+    font-size: 14px;
+    font-weight: 600;
+    user-select: none;
 }
