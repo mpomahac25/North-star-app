@@ -2,10 +2,11 @@
 set -euo pipefail
 umask 077
 
+export AWS_REQUEST_CHECKSUM_CALCULATION=when_required
+export AWS_RESPONSE_CHECKSUM_VALIDATION=when_required
+
 : "${RAHTI_NAMESPACE:?RAHTI_NAMESPACE is required}"
 : "${ALLAS_BACKUP_BUCKET:?ALLAS_BACKUP_BUCKET is required}"
-: "${AWS_ACCESS_KEY_ID:?AWS_ACCESS_KEY_ID is required}"
-: "${AWS_SECRET_ACCESS_KEY:?AWS_SECRET_ACCESS_KEY is required}"
 : "${BACKUP_PASSPHRASE:?BACKUP_PASSPHRASE is required}"
 
 if [[ "$RAHTI_NAMESPACE" != 'rio-theaters-dev' ]]; then
@@ -13,7 +14,7 @@ if [[ "$RAHTI_NAMESPACE" != 'rio-theaters-dev' ]]; then
     exit 1
 fi
 
-if [[ ! "$ALLAS_BACKUP_BUCKET" =~ ^[a-z0-9][a-z0-9.-]{2,62}$ ]]; then
+if [[ ! "$ALLAS_BACKUP_BUCKET" =~ ^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$ ]]; then
     echo 'Invalid Allas bucket name' >&2
     exit 1
 fi
