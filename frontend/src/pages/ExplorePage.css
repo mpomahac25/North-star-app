@@ -212,3 +212,15 @@
         font-size: 28px;
     }
 }
+
+.pagination-ellipsis {
+    color: var(--text-muted);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 28px;
+    height: 40px;
+    font-size: 14px;
+    font-weight: 600;
+    user-select: none;
+}

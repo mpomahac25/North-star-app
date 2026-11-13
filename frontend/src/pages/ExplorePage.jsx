@@ -3,6 +3,41 @@ import { useSearchParams, useNavigate } from "react-router-dom";
 import { ArrowUpRight, ChevronLeft } from "lucide-react";
 import "./ExplorePage.css";
 
+function getVisiblePages(currentPage, totalPages) {
+    if (totalPages <= 7) {
+        return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+
+    if (currentPage <= 4) {
+        return [1, 2, 3, 4, 5, 6, "...", totalPages];
+    }
+
+    if (currentPage >= totalPages - 3) {
+        return [
+            1,
+            "...",
+            totalPages - 5,
+            totalPages - 4,
+            totalPages - 3,
+            totalPages - 2,
+            totalPages - 1,
+            totalPages,
+        ];
+    }
+
+    return [
+        1,
+        "...",
+        currentPage - 2,
+        currentPage - 1,
+        currentPage,
+        currentPage + 1,
+        currentPage + 2,
+        "...",
+        totalPages,
+    ];
+}
+
 export default function ExplorePage() {
     const [searchParams] = useSearchParams();
     const navigate = useNavigate();
@@ -10,14 +45,12 @@ export default function ExplorePage() {
     const query = searchParams.get("search") || "";
     const [activeTab, setActiveTab] = useState("all");
 
-    // Estados de datos
     const [movies, setMovies] = useState([]);
     const [page, setPage] = useState(1);
-    const [totalPages, setTotalPages] = useState(0); 
+    const [totalPages, setTotalPages] = useState(0);
 
-    // Estados de carga y error
     const [isLoading, setIsLoading] = useState(false);
-    const [isLoadingMore, setIsLoadingMore] = useState(false); 
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [error, setError] = useState("");
 
     const abortControllerRef = useRef(null);
@@ -28,7 +61,6 @@ export default function ExplorePage() {
         setPage(1);
     }
 
-    
     const handleTabChange = (newTab) => {
         if (newTab !== activeTab) {
             setActiveTab(newTab);
@@ -46,11 +78,11 @@ export default function ExplorePage() {
 
             if (isPageTransition) {
                 setIsLoadingMore(true);
-                setError(""); 
+                setError("");
             } else {
                 setIsLoading(true);
                 setError("");
-                setMovies([]); 
+                setMovies([]);
                 setTotalPages(0);
             }
 
@@ -101,7 +133,7 @@ export default function ExplorePage() {
 
                 setMovies(formattedList);
                 setPage(requestedPage);
-                setTotalPages(Math.ceil(totalResults / 10));
+                setTotalPages(Math.min(100, Math.ceil(totalResults / 10)));
 
                 if (isPageTransition) {
                     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -222,20 +254,26 @@ export default function ExplorePage() {
 
             {!isLoading && totalPages > 1 && activeTab !== "showing" && (
                 <div className="pagination-container">
-                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((num) => (
-                        <button
-                            key={num}
-                            className={`btn-page ${page === num ? "active" : ""}`}
-                            onClick={() => {
-                                if (page !== num && !isLoadingMore) {
-                                    fetchMovies(num, true); 
-                                }
-                            }}
-                            disabled={isLoadingMore}
-                        >
-                            {num}
-                        </button>
-                    ))}
+                    {getVisiblePages(page, totalPages).map((item, index) =>
+                        item === "..." ? (
+                            <span key={`ellipsis-${index}`} className="pagination-ellipsis">
+                                ...
+                            </span>
+                        ) : (
+                            <button
+                                key={item}
+                                className={`btn-page ${page === item ? "active" : ""}`}
+                                onClick={() => {
+                                    if (page !== item && !isLoadingMore) {
+                                        fetchMovies(item, true);
+                                    }
+                                }}
+                                disabled={isLoadingMore}
+                            >
+                                {item}
+                            </button>
+                        ),
+                    )}
                 </div>
             )}
         </div>
