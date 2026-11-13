@@ -238,7 +238,7 @@ jobs:
           retention-days: 7
 
   database-tests:
-    name: PostgreSQL schema tests
+    name: PostgreSQL schema and migration tests
     needs: detect-database-changes
     if: needs.detect-database-changes.outputs.database == 'true'
     runs-on: ubuntu-latest
@@ -281,7 +281,44 @@ jobs:
         working-directory: db
         run: pnpm install --frozen-lockfile
 
-      - name: Run database schema tests
+      - name: Test fresh and existing database migrations
+        shell: bash
+        env:
+          DB_TEST_URL: postgresql://rio:ci_test_password@127.0.0.1:5432/rio_schema_test
+        run: |
+          flyway_run() {
+            local schema="$1"
+            shift
+
+            docker run --rm \
+              --network host \
+              --mount "type=bind,source=$GITHUB_WORKSPACE/db/migrations,target=/flyway/sql,readonly" \
+              -e FLYWAY_URL=jdbc:postgresql://127.0.0.1:5432/rio_schema_test \
+              -e FLYWAY_USER=rio \
+              -e FLYWAY_PASSWORD=ci_test_password \
+              flyway/flyway:13.12.1 \
+              -locations=filesystem:/flyway/sql \
+              -schemas="$schema" \
+              -defaultSchema="$schema" \
+              -baselineOnMigrate=false \
+              -cleanDisabled=true \
+              -validateMigrationNaming=true \
+              "$@"
+          }
+
+          flyway_run ci_fresh migrate
+          flyway_run ci_fresh validate
+
+          flyway_run ci_upgrade -target=1 migrate
+
+          node db/scripts/seed-upgrade.mjs
+
+          flyway_run ci_upgrade migrate
+          flyway_run ci_upgrade validate
+
+          flyway_run ci_upgrade migrate
+
+      - name: Run database schema and migration tests
         working-directory: db
         env:
           DB_TEST_URL: postgresql://rio:ci_test_password@127.0.0.1:5432/rio_schema_test
