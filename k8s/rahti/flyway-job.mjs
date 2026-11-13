@@ -96,7 +96,9 @@ const flywayArgs = [
     '-connectRetries=10',
     ...(operation === 'validate-pending'
         ? ['-ignoreMigrationPatterns=*:pending']
-        : ['-ignoreMigrationPatterns=']),
+        : operation === 'validate'
+            ? ['-ignoreMigrationPatterns=']
+            : []),
     operation === 'validate-pending' ? 'validate' : operation
 ];
 

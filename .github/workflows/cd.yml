@@ -140,11 +140,151 @@ jobs:
           BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
         run: bash db/scripts/backup-rahti.sh
 
+  database-migration:
+    name: Apply database migrations
+    needs:
+      - plan
+      - database-backup
+
+    if: ${{ needs.plan.result == 'success' && needs.database-backup.result == 'success' }}
+
+    runs-on: ubuntu-latest
+
+    environment:
+      name: rahti-dev
+      deployment: false
+
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+
+      - name: Install OpenShift CLI
+        uses: redhat-actions/openshift-tools-installer@v2
+        with:
+          oc: '4'
+
+      - name: Authenticate with Rahti
+        uses: redhat-actions/oc-login@v2
+        with:
+          openshift_server_url: ${{ vars.RAHTI_SERVER }}
+          openshift_token: ${{ secrets.RAHTI_TOKEN }}
+          namespace: ${{ vars.RAHTI_NAMESPACE }}
+
+      - name: Verify PostgreSQL availability
+        shell: bash
+        env:
+          RAHTI_NAMESPACE: ${{ vars.RAHTI_NAMESPACE }}
+        run: |
+          set -euo pipefail
+
+          test "$RAHTI_NAMESPACE" = "rio-theaters-dev"
+
+          oc -n "$RAHTI_NAMESPACE" rollout status \
+            deployment/postgres \
+            --timeout=120s
+
+          oc -n "$RAHTI_NAMESPACE" wait \
+            --for=condition=Available \
+            deployment/postgres \
+            --timeout=120s
+
+      - name: Apply and verify database migrations
+        shell: bash
+        env:
+          RAHTI_NAMESPACE: ${{ vars.RAHTI_NAMESPACE }}
+          ALLOW_RAHTI_MIGRATIONS: 'true'
+        run: |
+          set -euo pipefail
+
+          run_flyway() {
+            local operation="$1"
+            local job_name="rio-flyway-${operation}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            local manifest="$RUNNER_TEMP/${job_name}.json"
+
+            echo "Starting Flyway operation: $operation"
+
+            node k8s/rahti/flyway-job.mjs \
+              "$operation" \
+              "$job_name" \
+              > "$manifest"
+
+            oc -n "$RAHTI_NAMESPACE" apply \
+              --dry-run=server \
+              -f "$manifest"
+
+            oc -n "$RAHTI_NAMESPACE" apply \
+              -f "$manifest"
+
+            local status="timeout"
+
+            for ((attempt = 0; attempt < 72; attempt++)); do
+              local succeeded
+              local failed
+
+              succeeded=$(oc -n "$RAHTI_NAMESPACE" get job "$job_name" \
+                -o jsonpath='{.status.succeeded}')
+
+              failed=$(oc -n "$RAHTI_NAMESPACE" get job "$job_name" \
+                -o jsonpath='{.status.failed}')
+
+              if [[ "${succeeded:-0}" -gt 0 ]]; then
+                status="success"
+                break
+              fi
+
+              if [[ "${failed:-0}" -gt 0 ]]; then
+                status="failed"
+                break
+              fi
+
+              sleep 5
+            done
+
+            oc -n "$RAHTI_NAMESPACE" logs \
+              "job/$job_name" \
+              --all-containers=true || true
+
+            if [[ "$status" != "success" ]]; then
+              oc -n "$RAHTI_NAMESPACE" describe \
+                "job/$job_name" || true
+
+              oc -n "$RAHTI_NAMESPACE" get pods \
+                -l "batch.kubernetes.io/job-name=$job_name" \
+                -o wide || true
+
+              oc -n "$RAHTI_NAMESPACE" delete job \
+                "$job_name" \
+                --ignore-not-found=true \
+                --wait=false || true
+
+              echo "::error::Flyway $operation failed: $status"
+              return 1
+            fi
+
+            oc -n "$RAHTI_NAMESPACE" delete job \
+              "$job_name" \
+              --ignore-not-found=true
+
+            echo "Flyway $operation completed successfully"
+          }
+
+          run_flyway validate-pending
+          run_flyway migrate
+          run_flyway validate
+
   publish:
     name: Publish ${{ matrix.name }}
     needs:
       - plan
       - database-backup
+      - database-migration
     if: ${{ needs.plan.outputs.publish_count != '0' }}
     runs-on: ubuntu-latest
     environment:
@@ -240,8 +380,9 @@ jobs:
     needs:
       - plan
       - database-backup
+      - database-migration
       - publish
-    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.database-backup.result == 'success' && (needs.publish.result == 'success' || needs.publish.result == 'skipped') }}
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.database-backup.result == 'success' && needs.database-migration.result == 'success' && (needs.publish.result == 'success' || needs.publish.result == 'skipped') }}
     runs-on: ubuntu-latest
     environment:
       name: rahti-dev
@@ -334,9 +475,10 @@ jobs:
     needs:
       - plan
       - database-backup
+      - database-migration
       - publish
       - deploy
-    if: ${{ always() && (needs.plan.result == 'failure' || needs.database-backup.result == 'failure' || needs.publish.result == 'failure' || needs.deploy.result == 'failure') }}
+    if: ${{ always() && (needs.plan.result == 'failure' || needs.database-backup.result == 'failure' || needs.database-migration.result == 'failure' || needs.publish.result == 'failure' || needs.deploy.result == 'failure') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -352,6 +494,7 @@ jobs:
           PUBLISH_RESULT: ${{ needs.publish.result }}
           DEPLOY_RESULT: ${{ needs.deploy.result }}
           BACKUP_RESULT: ${{ needs.database-backup.result }}
+          MIGRATION_RESULT: ${{ needs.database-migration.result }}
         run: |
           node --input-type=module <<'NODE'
           import { appendFileSync, writeFileSync } from 'node:fs';
@@ -394,6 +537,7 @@ jobs:
             `Publish: ${process.env.PUBLISH_RESULT}`,
             `Deploy: ${process.env.DEPLOY_RESULT}`,
             `Backup: ${process.env.BACKUP_RESULT}`,
+            `Database migration: ${process.env.MIGRATION_RESULT}`,
             `Workflow: ${url}`,
             ...(missing.length ? [`Missing recipient mappings: ${missing.join(', ')}`] : []),
             '',
@@ -410,6 +554,7 @@ jobs:
             `- Publish: ${process.env.PUBLISH_RESULT}`,
             `- Deploy: ${process.env.DEPLOY_RESULT}`,
             `- Backup: ${process.env.BACKUP_RESULT}`,
+            `- Database migration: ${process.env.MIGRATION_RESULT}`,
             '',
             'Investigate the failing job and fix through the normal CI and PR process.'
           ].join('\n') + '\n');
