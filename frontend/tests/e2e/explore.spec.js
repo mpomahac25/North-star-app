@@ -61,6 +61,14 @@ async function fulfillJson(route, body, status = 200) {
     });
 }
 
+// Might need to be updated based on actual implementation
+function pageButton(page, number) {
+    return page.getByRole("button", {
+        name: String(number),
+        exact: true,
+    });
+}
+
 test.describe("Explore Page", () => {
     test("Displays the default movie grid and filter tabs", async ({ page }) => {
         let receivedQuery = null;
@@ -463,7 +471,109 @@ test.describe("Explore Page", () => {
         ).toHaveCount(0);
     });
 
-    test("Appends movies from subsequent pages without replacing previous results", async ({ page }) => {
+    test("Ignores outdated page requests after the search changes", async ({ page }) => {
+        await page.setViewportSize({
+            width: 1280,
+            height: 800,
+        });
+
+        let releaseOldRequest;
+        let oldRequestStarted;
+        let oldRequestFinished;
+
+        const responseGate = new Promise((resolve) => {
+            releaseOldRequest = resolve;
+        });
+
+        const requestStarted = new Promise((resolve) => {
+            oldRequestStarted = resolve;
+        });
+
+        const requestFinished = new Promise((resolve) => {
+            oldRequestFinished = resolve;
+        });
+
+        await page.route(
+            (url) => url.pathname === "/api/movies/search",
+            async (route) => {
+                const url = new URL(route.request().url());
+
+                const query = url.searchParams.get("q");
+                const pageNumber = Number(url.searchParams.get("page"));
+
+                if (query === "movie" && pageNumber === 2) {
+                    oldRequestStarted();
+
+                    await responseGate;
+
+                    try {
+                        await fulfillJson(route, createPageResults(2, 20));
+                    } catch {
+                    } finally {
+                        oldRequestFinished();
+                    }
+
+                    return;
+                }
+
+                if (query === "dune") {
+                    await fulfillJson(route, {
+                        Search: [{
+                            imdbID: "tt1160419",
+                            Title: "Dune",
+                            Year: "2021",
+                            Poster: poster,
+                        }],
+                        totalResults: "1",
+                        Response: "True",
+                    });
+
+                    return;
+                }
+
+                await fulfillJson(route, createPageResults(1, 20));
+            },
+        );
+
+        await page.goto("/explore?search=movie");
+
+        const cards = page.locator(".explore-card");
+
+        await expect(cards).toHaveCount(10);
+
+        await pageButton(page, 2).click();
+
+        await requestStarted;
+
+        const searchInput = page.locator(".top-nav-search input");
+
+        try {
+            await searchInput.fill("Dune");
+            await searchInput.press("Enter");
+
+            await expect(page).toHaveURL(/\/explore\?search=dune$/);
+
+            await expect(
+                page.getByRole("heading", { name: "Dune", exact: true }),
+            ).toBeVisible();
+        } finally {
+            releaseOldRequest();
+        }
+
+        await requestFinished;
+
+        await expect(cards).toHaveCount(1);
+
+        await expect(
+            page.getByRole("heading", { name: "Dune", exact: true }),
+        ).toBeVisible();
+
+        await expect(
+            page.getByRole("heading", { name: "Movie 11", exact: true }),
+        ).toHaveCount(0);
+    });
+
+    test("Replaces displayed movies when navigating between numbered pages", async ({ page }) => {
         const requestedPages = [];
 
         await page.route(
@@ -480,38 +590,38 @@ test.describe("Explore Page", () => {
 
         await page.goto("/explore?search=movie");
 
-        const cards = page.locator(".explore-card");
-        const loadMore = page.getByRole("button", { name: "Show more movies" });
+        const titles = page.locator(".explore-card .explore-movie-title");
 
-        await expect(cards).toHaveCount(10);
-        await expect(loadMore).toBeVisible();
-
-        await loadMore.click();
-
-        await expect(cards).toHaveCount(20);
-
-        await expect(
-            cards.locator(".explore-movie-title"),
-        ).toHaveText(
-            Array.from({ length: 20 }, (_, index) => `Movie ${index + 1}`),
+        await expect(titles).toHaveText(
+            Array.from({ length: 10 }, (_, index) => `Movie ${index + 1}`),
         );
 
-        await loadMore.click();
+        await pageButton(page, 2).click();
 
-        await expect(cards).toHaveCount(25);
-
-        await expect(
-            cards.locator(".explore-movie-title"),
-        ).toHaveText(
-            Array.from({ length: 25 }, (_, index) => `Movie ${index + 1}`),
+        await expect(titles).toHaveText(
+            Array.from({ length: 10 }, (_, index) => `Movie ${index + 11}`),
         );
 
-        await expect(loadMore).toHaveCount(0);
+        await pageButton(page, 3).click();
+
+        await expect(titles).toHaveText(
+            Array.from({ length: 5 }, (_, index) => `Movie ${index + 21}`),
+        );
+
+        await expect(pageButton(page, 4)).toHaveCount(0);
+
+        await pageButton(page, 1).click();
+
+        await expect(titles).toHaveText(
+            Array.from({ length: 10 }, (_, index) => `Movie ${index + 1}`),
+        );
+
+        await expect(page).toHaveURL(/\/explore\?search=movie$/);
 
         expect(requestedPages.filter((number) => number > 1)).toEqual([2, 3]);
     });
 
-    test("Prevents additional loading requests while a page is being fetched", async ({ page }) => {
+    test("Keeps the current movies visible while another page is loading", async ({ page }) => {
         let releasePage2;
         let page2Requests = 0;
 
@@ -536,23 +646,25 @@ test.describe("Explore Page", () => {
 
         await page.goto("/explore?search=movie");
 
-        const cards = page.locator(".explore-card");
+        const titles = page.locator(".explore-card .explore-movie-title");
 
-        await expect(cards).toHaveCount(10);
+        await expect(titles).toHaveText(
+            Array.from({ length: 10 }, (_, index) => `Movie ${index + 1}`),
+        );
 
-        await page.getByRole("button", { name: "Show more movies" }).click();
+        await pageButton(page, 2).dblclick();
 
         try {
-            await expect(
-                page.getByRole("button", { name: "Loading..." }),
-            ).toBeDisabled();
-
-            await expect(cards).toHaveCount(10);
+            await expect(titles).toHaveText(
+                Array.from({ length: 10 }, (_, index) => `Movie ${index + 1}`),
+            );
         } finally {
             releasePage2();
         }
 
-        await expect(cards).toHaveCount(20);
+        await expect(titles).toHaveText(
+            Array.from({ length: 10 }, (_, index) => `Movie ${index + 11}`),
+        );
 
         expect(page2Requests).toBe(1);
     });
@@ -598,9 +710,17 @@ test.describe("Explore Page", () => {
 
         await expect(cards).toHaveCount(10);
 
-        await page.getByRole("button", { name: "Show more movies" }).click();
+        await pageButton(page, 2).click();
 
-        await expect(cards).toHaveCount(20);
+        await expect(cards).toHaveCount(10);
+
+        await expect(
+            page.getByRole("heading", { name: "Movie 11", exact: true }),
+        ).toBeVisible();
+
+        await expect(
+            page.getByRole("heading", { name: "Movie 1", exact: true }),
+        ).toHaveCount(0);
 
         const searchInput = page.locator(".top-nav-search input");
 
@@ -619,9 +739,7 @@ test.describe("Explore Page", () => {
             page.getByRole("heading", { name: "Movie 1" }),
         ).toHaveCount(0);
 
-        await expect(
-            page.getByRole("button", { name: "Show more movies" }),
-        ).toHaveCount(0);
+        await expect(pageButton(page, 2)).toHaveCount(0);
 
         expect(requests.at(-1)).toEqual({
             query: "dune",
@@ -667,9 +785,13 @@ test.describe("Explore Page", () => {
 
         await expect(cards).toHaveCount(10);
 
-        await page.getByRole("button", { name: "Show more movies" }).click();
+        await pageButton(page, 2).click();
 
-        await expect(cards).toHaveCount(20);
+        await expect(cards).toHaveCount(10);
+
+        await expect(
+            page.getByRole("heading", { name: "Movie 11", exact: true }),
+        ).toBeVisible();
 
         await page.getByRole("button", { name: "Now showing" }).click();
 
@@ -683,9 +805,7 @@ test.describe("Explore Page", () => {
             page.getByRole("heading", { name: "Movie 1" }),
         ).toHaveCount(0);
 
-        await expect(
-            page.getByRole("button", { name: "Show more movies" }),
-        ).toHaveCount(0);
+        await expect(pageButton(page, 2)).toHaveCount(0);
 
         expect(showingRequests).toBe(1);
 
@@ -697,9 +817,15 @@ test.describe("Explore Page", () => {
             page.getByRole("heading", { name: "Featured Film" }),
         ).toHaveCount(0);
 
+        await expect(pageButton(page, 2)).toBeVisible();
+
         await expect(
-            page.getByRole("button", { name: "Show more movies" }),
+            page.getByRole("heading", { name: "Movie 1", exact: true }),
         ).toBeVisible();
+
+        await expect(
+            page.getByRole("heading", { name: "Movie 11", exact: true }),
+        ).toHaveCount(0);
 
         expect(searchRequests.at(-1)).toBe(1);
     });
@@ -741,7 +867,7 @@ test.describe("Explore Page", () => {
         });
     });
 
-    test("Preserves loaded movies and retries a failed pagination request", async ({ page }) => {
+    test("Preserves the current page and allows retrying failed page navigation", async ({ page }) => {
         const requestedPages = [];
         let page2Attempts = 0;
 
@@ -774,25 +900,27 @@ test.describe("Explore Page", () => {
 
         await page.goto("/explore?search=movie");
 
-        const cards = page.locator(".explore-card");
+        const titles = page.locator(".explore-card .explore-movie-title");
 
-        await expect(cards).toHaveCount(10);
+        await expect(titles).toHaveText(
+            Array.from({ length: 10 }, (_, index) => `Movie ${index + 1}`),
+        );
 
-        await page.getByRole("button", { name: "Show more movies" }).click();
+        await pageButton(page, 2).click();
 
         await expect(page.getByRole("alert")).toBeVisible();
 
-        await expect(cards).toHaveCount(10);
+        await expect(titles).toHaveText(
+            Array.from({ length: 10 }, (_, index) => `Movie ${index + 1}`),
+        );
 
-        const retryButton = page.getByRole("button", {
-            name: /show more|retry|try again/i,
-        });
+        await pageButton(page, 2).click();
 
-        await expect(retryButton).toBeVisible();
+        await expect(titles).toHaveText(
+            Array.from({ length: 10 }, (_, index) => `Movie ${index + 11}`),
+        );
 
-        await retryButton.click();
-
-        await expect(cards).toHaveCount(20);
+        await expect(page.getByRole("alert")).toHaveCount(0);
 
         expect(requestedPages.filter((number) => number > 1)).toEqual([2, 2]);
     });
