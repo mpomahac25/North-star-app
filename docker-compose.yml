@@ -7,7 +7,6 @@ x-db-environment: &db-environment
   DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env file}
 
 services:
-
   # Postgres DB
   postgres:
     image: postgres:17-alpine
@@ -29,12 +28,12 @@ services:
 
     # Simple periodic health check
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      test:
+        ["CMD-SHELL", 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 20s
-
 
   # Frontend configuration
   frontend:
@@ -55,7 +54,6 @@ services:
       backend:
         condition: service_healthy
 
-
   # Main backend API
   backend:
     image: docker.io/${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}/rio-theaters-backend:${BACKEND_VERSION:?BACKEND_VERSION is required}
@@ -70,7 +68,6 @@ services:
       <<: *db-environment
       BACKEND_PORT: ${BACKEND_PORT:-3001}
       MOVIES_API_URL: http://movies:${MOVIES_API_PORT:-3005}
-      MOVIES_CATALOG_WRITE_TOKEN: ${MOVIES_CATALOG_WRITE_TOKEN:-}
 
     # Wait until the database is healthy before starting
     depends_on:
@@ -78,7 +75,6 @@ services:
         condition: service_healthy
       movies:
         condition: service_healthy
-
 
   # Booking microservice
   booking:
@@ -99,7 +95,6 @@ services:
       postgres:
         condition: service_healthy
 
-
   # Login microservice
   login:
     image: docker.io/${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}/rio-theaters-login:${LOGIN_VERSION:?LOGIN_VERSION is required}
@@ -118,7 +113,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-
 
   # Payment microservice
   payment:
@@ -139,7 +133,6 @@ services:
       postgres:
         condition: service_healthy
 
-
   # Movies microservice
   movies:
     image: docker.io/${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}/rio-theaters-movies:${MOVIES_VERSION:?MOVIES_VERSION is required}
@@ -159,7 +152,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-
 
 # Persistent database storage
 volumes:

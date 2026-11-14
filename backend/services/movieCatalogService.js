@@ -1,4 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
 import { findMovieById, listMovies } from "../dao/movies/movieReadDao.js";
 import { upsertMovie } from "../dao/movies/movieWriteDao.js";
 
@@ -33,23 +32,6 @@ export async function getComingSoonMovies(year = 2026) {
     year: movie.releaseYear,
     poster: movie.posterUrl,
   }));
-}
-
-export function isCatalogWriteAuthorized(authorizationHeader = "") {
-  const expectedToken = process.env.MOVIES_CATALOG_WRITE_TOKEN;
-
-  if (!expectedToken) {
-    return process.env.NODE_ENV !== "production";
-  }
-
-  const [scheme, suppliedToken] = authorizationHeader.split(" ");
-  if (scheme !== "Bearer" || !suppliedToken) return false;
-
-  const expected = Buffer.from(expectedToken);
-  const supplied = Buffer.from(suppliedToken);
-  return (
-    expected.length === supplied.length && timingSafeEqual(expected, supplied)
-  );
 }
 
 export async function importMovieByTitle(title, year) {

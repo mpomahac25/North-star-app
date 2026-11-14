@@ -35,9 +35,12 @@ function buildFilters({ query, releaseYear }) {
   };
 }
 
-export async function listMovies({ query, releaseYear, limit, offset }) {
+export async function listMovies(
+  { query, releaseYear, limit, offset },
+  database = pool,
+) {
   const { values, where } = buildFilters({ query, releaseYear });
-  const countResult = await pool.query(
+  const countResult = await database.query(
     `SELECT COUNT(*)::INTEGER AS total
          FROM movies m
          ${where}`,
@@ -45,7 +48,7 @@ export async function listMovies({ query, releaseYear, limit, offset }) {
   );
 
   const pageValues = [...values, limit, offset];
-  const result = await pool.query(
+  const result = await database.query(
     `SELECT m.id, m.imdb_id, m.title, m.description,
                 m.duration_minutes, m.release_year, m.poster_url,
                 ar.rating AS age_rating
@@ -64,8 +67,8 @@ export async function listMovies({ query, releaseYear, limit, offset }) {
   };
 }
 
-export async function findMovieById(id) {
-  const result = await pool.query(
+export async function findMovieById(id, database = pool) {
+  const result = await database.query(
     `SELECT m.id, m.imdb_id, m.title, m.description,
                 m.duration_minutes, m.release_year, m.poster_url,
                 ar.rating AS age_rating

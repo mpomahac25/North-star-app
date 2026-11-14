@@ -1,7 +1,7 @@
 import { pool } from "../../db/pool.js";
 
-export async function upsertMovie(movie) {
-  const client = await pool.connect();
+export async function upsertMovie(movie, database = pool) {
+  const client = await database.connect();
 
   try {
     await client.query("BEGIN");
