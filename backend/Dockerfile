@@ -33,7 +33,7 @@ EXPOSE 3001
 
 # Configure periodic liveness check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=15s --retries=3 \
-    CMD node -e "fetch('http://127.0.0.1:3001/api/live').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+    CMD node -e "fetch('http://127.0.0.1:3001/api/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 # Start server
 CMD ["node", "server.js"]
