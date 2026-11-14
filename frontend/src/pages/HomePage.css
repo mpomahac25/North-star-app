@@ -130,14 +130,14 @@
     display: none;
 }
 
-/* Fixed mobile card width so posters do not stretch */
 .movie-card-coming {
-    flex: 0 0 210px;
+    flex: 0 0 88%;
     scroll-snap-align: start;
     display: flex;
     flex-direction: column;
     gap: 8px;
     min-width: 0;
+    cursor: pointer;
 }
 
 .poster-wrapper {
@@ -306,13 +306,7 @@
     }
 
     .movie-card-coming {
-        flex: 0 0 88%;
-        scroll-snap-align: start;
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        min-width: 0;
-        cursor: pointer;
+        flex: none;
     }
 
     .cinema-list {
