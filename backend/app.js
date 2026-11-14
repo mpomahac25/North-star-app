@@ -97,6 +97,26 @@ app.get("/api/movies/search", async (req, res) => {
     }
 });
 
+app.get("/api/movies/:imdbId", async (req, res) => {
+    try {
+        const safeId = encodeURIComponent(req.params.imdbId);
+        const targetUrl = new URL(`/api/movies/${safeId}`, MOVIES_API_URL);
+
+        const response = await fetch(targetUrl);
+        const data = await response.json();
+
+        return res.status(response.status).json(data);
+    } catch (error) {
+        console.error("Could not fetch movie details from movies service:", error);
+        return res.status(502).json({
+            error: {
+                code: "MOVIES_SERVICE_UNAVAILABLE",
+                message: "Could not load movie details from the movies service.",
+            },
+        });
+    }
+});
+
 // MUST BE KEPT AFTER ALL ROUTES!!!
 app.use((req, res) => {
     res.status(404).json({
