@@ -306,7 +306,13 @@
     }
 
     .movie-card-coming {
-        flex: none;
+        flex: 0 0 88%;
+        scroll-snap-align: start;
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-width: 0;
+        cursor: pointer;
     }
 
     .cinema-list {

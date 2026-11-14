@@ -121,7 +121,11 @@ export default function HomePage() {
                     {!isLoadingMovies &&
                         !moviesError &&
                         featuredMovies.map((movie) => (
-                            <div className="movie-card-coming" key={movie.imdbId}>
+                            <div
+                                className="movie-card-coming"
+                                key={movie.imdbId}
+                                onClick={() => navigate(`/details/${movie.imdbId}`)}
+                            >
                                 <div className="poster-wrapper">
                                     {movie.poster && (
                                         <img
@@ -138,7 +142,7 @@ export default function HomePage() {
                                     </div>
                                 </div>
                             </div>
-                        ))}
+                        ))}{" "}
                 </div>
             </section>
 
