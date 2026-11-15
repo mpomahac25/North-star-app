@@ -190,6 +190,12 @@ describe('Database Schema', () => {
                 is_nullable: 'NO'
             }),
             expect.objectContaining({
+                table_name: 'movies',
+                column_name: 'release_year',
+                data_type: 'smallint',
+                is_nullable: 'YES'
+            }),
+            expect.objectContaining({
                 table_name: 'screenings',
                 column_name: 'start_time',
                 data_type: 'timestamp with time zone',
