@@ -8,11 +8,14 @@
 import express from "express";
 import { pool } from "./db/pool.js";
 import {
-  getComingSoonMovies,
-  getMovie,
-  getMovieList,
-  importMovieByTitle,
-  MovieCatalogError,
+    getNowShowingMovies,
+    getComingSoonMovies,
+    getMovie,
+    getUpcomingMovieScreenings,
+    getMovieByImdbId,
+    getMovieList,
+    importMovieByTitle,
+    MovieCatalogError,
 } from "./services/movieCatalogService.js";
 
 const app = express();
@@ -76,6 +79,22 @@ app.get("/api/movies/coming-soon", async (req, res) => {
   }
 });
 
+// MUST BE KEPT BEFORE /api/movies/:id
+app.get("/api/movies/now-showing", async (req, res) => {
+    try {
+        return res.json(await getNowShowingMovies());
+    } catch (error) {
+        console.error("Could not load Now Showing movies from PostgreSQL:", error);
+
+        return res.status(500).json({
+            error: {
+                code: "MOVIE_CATALOG_READ_FAILED",
+                message: "Could not load currently showing movies.",
+            },
+        });
+    }
+});
+
 app.get("/api/movies", async (req, res) => {
   const page = req.query.page === undefined ? 1 : Number(req.query.page);
   const limit = req.query.limit === undefined ? 20 : Number(req.query.limit);
@@ -128,14 +147,46 @@ app.get("/api/movies", async (req, res) => {
       });
   }
 
-  try {
-    const result = await getMovieList({
-      query: query || undefined,
-      releaseYear,
-      limit,
-      offset: (page - 1) * limit,
-    });
-    return res.json({ ...result, page, limit });
+    try {
+        const options = {
+            query: query || undefined,
+            releaseYear,
+            limit,
+            offset: (page - 1) * limit,
+        };
+
+        let result = await getMovieList(options);
+
+        // TODO: Remove temporary OMDb search fallback when the Admin panel is implemented.
+        if (query && query.length >= 2 && page === 1 && result.total === 0) {
+            try {
+                const url = new URL("/api/movies/search", MOVIES_API_URL);
+                url.searchParams.set("q", query);
+                url.searchParams.set("type", "movie");
+
+                const response = await fetch(url, {
+                    signal: AbortSignal.timeout(12000),
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+
+                    for (const movie of (data.Search ?? []).slice(0, 10)) {
+                        try {
+                            await getMovieByImdbId(movie.imdbID);
+                        } catch (error) {
+                            console.error("Could not import movie:", movie.imdbID, error);
+                        }
+                    }
+
+                    result = await getMovieList(options);
+                }
+            } catch (error) {
+                console.error("Temporary OMDb search failed:", error);
+            }
+        }
+
+        return res.json({ ...result, page, limit });
   } catch (error) {
     console.error("Could not list movies from PostgreSQL:", error);
     return res.status(500).json({
@@ -147,6 +198,8 @@ app.get("/api/movies", async (req, res) => {
   }
 });
 
+// TODO: Restrict this endpoint to authenticated administrators. It will be used for Admin panel; potentially change later to "/api/admin/movies/search" just for differentiation
+// Public movie searches must use PostgreSQL through GET /api/movies.
 app.get("/api/movies/search", async (req, res) => {
   try {
     const queryString = new URLSearchParams(req.query).toString();
@@ -170,12 +223,14 @@ app.get("/api/movies/search", async (req, res) => {
   }
 });
 
+// TODO: When authentication is implemented, restrict OMDb fallback to administrators.
+// Public users must only retrieve movies already stored in PostgreSQL.
 app.get("/api/movies/:id", async (req, res) => {
     const { id } = req.params;
     const numericId = Number(id);
 
-    if (!Number.isNaN(numericId)) {
-        if (!Number.isInteger(numericId) || numericId < 1) {
+    if (/^\d+$/.test(id)) {
+        if (!Number.isSafeInteger(numericId) || numericId < 1) {
             return res.status(400).json({
                 error: {
                     code: "INVALID_MOVIE_ID",
@@ -209,26 +264,88 @@ app.get("/api/movies/:id", async (req, res) => {
         }
     }
 
-    try {
-        const safeId = encodeURIComponent(id);
-        const targetUrl = new URL(`/api/movies/${safeId}`, MOVIES_API_URL);
-
-        const response = await fetch(targetUrl);
-        const data = await response.json();
-
-        return res.status(response.status).json(data);
-    } catch (error) {
-        console.error("Could not fetch movie details from movies service:", error);
-
-        return res.status(502).json({
+    if (!/^tt\d+$/.test(id)) {
+        return res.status(400).json({
             error: {
-                code: "MOVIES_SERVICE_UNAVAILABLE",
-                message: "Could not load movie details from the movies service.",
+                code: "INVALID_MOVIE_ID",
+                message: "Movie ID must be a positive integer or a valid IMDb ID.",
+            },
+        });
+    }
+
+    try {
+        const movie = await getMovieByImdbId(id);
+        return res.json(movie);
+    } catch (error) {
+        if (error instanceof MovieCatalogError) {
+            const code =
+                error.status === 404
+                    ? "MOVIE_NOT_FOUND"
+                    : error.status === 502
+                        ? "MOVIES_SERVICE_UNAVAILABLE"
+                        : "MOVIE_DETAILS_FAILED";
+
+            return res.status(error.status).json({
+                error: {
+                    code,
+                    message: error.message,
+                },
+            });
+        }
+
+        console.error("Could not load movie details:", error);
+
+        return res.status(500).json({
+            error: {
+                code: "MOVIE_CATALOG_READ_FAILED",
+                message: "Could not load movie details.",
             },
         });
     }
 });
 
+app.get("/api/movies/:id/screenings", async (req, res) => {
+    const { id } = req.params;
+    const movieId = Number(id);
+
+    if (!/^\d+$/.test(id) || !Number.isSafeInteger(movieId) || movieId < 1) {
+        return res.status(400).json({
+            error: {
+                code: "INVALID_MOVIE_ID",
+                message: "Movie ID must be a positive integer.",
+            },
+        });
+    }
+
+    try {
+        const movie = await getMovie(movieId);
+
+        if (!movie) {
+            return res.status(404).json({
+                error: {
+                    code: "MOVIE_NOT_FOUND",
+                    message: "Movie was not found.",
+                },
+            });
+        }
+
+        const screenings = await getUpcomingMovieScreenings(movieId);
+
+        return res.json(screenings);
+    } catch (error) {
+        console.error("Could not load movie screenings from PostgreSQL:", error);
+
+        return res.status(500).json({
+            error: {
+                code: "MOVIE_SCREENINGS_READ_FAILED",
+                message: "Could not load movie screenings.",
+            },
+        });
+    }
+});
+
+// TODO: Restrict movie imports from OMDb to authenticated administrators.
+// Imported movies must be persisted to PostgreSQL.
 app.post("/api/movies/import", async (req, res) => {
   const title =
     typeof req.body?.title === "string" ? req.body.title.trim() : "";

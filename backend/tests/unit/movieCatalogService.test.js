@@ -9,8 +9,11 @@ import {
 } from "@jest/globals";
 
 const readDaoMocks = {
-  findMovieById: jest.fn(),
-  listMovies: jest.fn(),
+    findMovieById: jest.fn(),
+    findMovieByImdbId: jest.fn(),
+    listMovies: jest.fn(),
+    listUpcomingScreeningsByMovieId: jest.fn(),
+    listNowShowingMovies: jest.fn(),
 };
 const writeDaoMocks = { upsertMovie: jest.fn() };
 const originalMoviesApiUrl = process.env.MOVIES_API_URL;
@@ -20,9 +23,10 @@ jest.unstable_mockModule("../../dao/movies/movieReadDao.js", () => readDaoMocks)
 jest.unstable_mockModule("../../dao/movies/movieWriteDao.js", () => writeDaoMocks);
 
 const {
-  getComingSoonMovies,
-  importMovieByTitle,
-  MovieCatalogError,
+    getComingSoonMovies,
+    getMovieByImdbId,
+    importMovieByTitle,
+    MovieCatalogError,
 } = await import("../../services/movieCatalogService.js");
 
 function jsonResponse(payload, status = 200) {
@@ -36,7 +40,10 @@ describe("Movie catalog service", () => {
   beforeEach(() => {
     jest.spyOn(globalThis, "fetch");
     readDaoMocks.findMovieById.mockReset();
+    readDaoMocks.findMovieByImdbId.mockReset();
     readDaoMocks.listMovies.mockReset();
+    readDaoMocks.listUpcomingScreeningsByMovieId.mockReset();
+    readDaoMocks.listNowShowingMovies.mockReset();
     writeDaoMocks.upsertMovie.mockReset();
   });
 
@@ -54,15 +61,30 @@ describe("Movie catalog service", () => {
 
   test("fetches by exact title and persists normalized OMDb fields through the write DAO", async () => {
     const omdbMovie = {
-      Title: "Drive",
-      Year: "2011",
-      imdbID: "tt0780504",
-      Runtime: "100 min",
-      Plot: "A driver gets caught in a robbery.",
-      Rated: "R",
-      Poster: "https://example.test/drive.jpg",
+        Title: "Drive",
+        Year: "2011",
+        imdbID: "tt0780504",
+        Runtime: "100 min",
+        Plot: "A driver gets caught in a robbery.",
+        Rated: "R",
+        Poster: "https://example.test/drive.jpg",
+        Released: "16 Sep 2011",
+        Genre: "Action, Drama",
+        Director: "Nicolas Winding Refn",
+        Writer: "Hossein Amini, James Sallis",
+        Actors: "Ryan Gosling, Carey Mulligan",
+        Language: "English, Spanish",
+        Country: "United States",
+        Awards: "Nominated for 1 Oscar.",
+        imdbRating: "7.8",
+        imdbVotes: "775,952",
+        BoxOffice: "$35,061,555",
     };
-    const savedMovie = { id: 42, imdb_id: "tt0780504", title: "Drive" };
+    const savedMovie = {
+        id: 42,
+        imdbId: "tt0780504",
+        title: "Drive",
+    };
     fetch.mockResolvedValueOnce(jsonResponse(omdbMovie));
     writeDaoMocks.upsertMovie.mockResolvedValueOnce(savedMovie);
 
@@ -74,13 +96,24 @@ describe("Movie catalog service", () => {
     expect(requestUrl.searchParams.get("title")).toBe("Drive");
     expect(requestUrl.searchParams.get("year")).toBe("2011");
     expect(writeDaoMocks.upsertMovie).toHaveBeenCalledWith({
-      imdbId: "tt0780504",
-      title: "Drive",
-      description: "A driver gets caught in a robbery.",
-      durationMinutes: 100,
-      releaseYear: 2011,
-      ageRating: "R",
-      posterUrl: "https://example.test/drive.jpg",
+        imdbId: "tt0780504",
+        title: "Drive",
+        description: "A driver gets caught in a robbery.",
+        durationMinutes: 100,
+        releaseYear: 2011,
+        ageRating: "R",
+        posterUrl: "https://example.test/drive.jpg",
+        releaseDate: "2011-09-16",
+        genres: ["Action", "Drama"],
+        directors: ["Nicolas Winding Refn"],
+        writers: ["Hossein Amini", "James Sallis"],
+        actors: ["Ryan Gosling", "Carey Mulligan"],
+        languages: ["English", "Spanish"],
+        country: "United States",
+        awards: "Nominated for 1 Oscar.",
+        imdbRating: 7.8,
+        imdbVotes: 775952,
+        boxOffice: "$35,061,555",
     });
   });
 
@@ -93,6 +126,17 @@ describe("Movie catalog service", () => {
       Plot: "N/A",
       Rated: "N/A",
       Poster: "N/A",
+      Released: "N/A",
+      Genre: "N/A",
+      Director: "N/A",
+      Writer: "N/A",
+      Actors: "N/A",
+      Language: "N/A",
+      Country: "N/A",
+      Awards: "N/A",
+      imdbRating: "N/A",
+      imdbVotes: "N/A",
+      BoxOffice: "N/A",
     }));
     writeDaoMocks.upsertMovie.mockResolvedValueOnce({ id: 1 });
 
@@ -103,6 +147,17 @@ describe("Movie catalog service", () => {
       ageRating: null,
       posterUrl: null,
       releaseYear: 2026,
+      releaseDate: null,
+      genres: [],
+      directors: [],
+      writers: [],
+      actors: [],
+      languages: [],
+      country: null,
+      awards: null,
+      imdbRating: null,
+      imdbVotes: null,
+      boxOffice: null,
     }));
   });
 
@@ -193,5 +248,80 @@ describe("Movie catalog service", () => {
 
   test("exports the catalog error type for route-level error handling", () => {
     expect(new MovieCatalogError("failure", 502)).toBeInstanceOf(Error);
+  });
+
+  test("returns an existing movie from PostgreSQL without contacting OMDb", async () => {
+    const storedMovie = {
+        id: 42,
+        imdbId: "tt0780504",
+        title: "Drive",
+    };
+
+    readDaoMocks.findMovieByImdbId.mockResolvedValueOnce(storedMovie);
+
+    const result = await getMovieByImdbId("tt0780504");
+
+    expect(result).toBe(storedMovie);
+    expect(readDaoMocks.findMovieByImdbId).toHaveBeenCalledWith("tt0780504");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(writeDaoMocks.upsertMovie).not.toHaveBeenCalled();
+  });
+
+  test("imports and persists a movie when it is missing from PostgreSQL", async () => {
+    const omdbMovie = {
+        imdbID: "tt0133093",
+        Title: "The Matrix",
+        Year: "1999",
+        Runtime: "136 min",
+        Plot: "A computer hacker discovers the truth.",
+        Rated: "R",
+        Poster: "https://example.test/matrix.jpg",
+        Genre: "Action, Sci-Fi",
+    };
+
+    const savedMovie = {
+        id: 15,
+        imdbId: "tt0133093",
+        title: "The Matrix",
+    };
+
+    readDaoMocks.findMovieByImdbId.mockResolvedValueOnce(null);
+    fetch.mockResolvedValueOnce(jsonResponse(omdbMovie));
+    writeDaoMocks.upsertMovie.mockResolvedValueOnce(savedMovie);
+
+    const result = await getMovieByImdbId("tt0133093");
+
+    expect(readDaoMocks.findMovieByImdbId).toHaveBeenCalledWith("tt0133093");
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    const requestUrl = new URL(fetch.mock.calls[0][0]);
+
+    expect(requestUrl.pathname).toBe("/api/movies/tt0133093");
+
+    expect(writeDaoMocks.upsertMovie).toHaveBeenCalledWith(
+        expect.objectContaining({
+            imdbId: "tt0133093",
+            title: "The Matrix",
+            durationMinutes: 136,
+            releaseYear: 1999,
+            genres: ["Action", "Sci-Fi"],
+        }),
+    );
+
+    expect(result).toBe(savedMovie);
+  });
+
+  test("does not contact OMDb when the PostgreSQL lookup fails", async () => {
+    const databaseError = new Error("Database unavailable");
+
+    readDaoMocks.findMovieByImdbId.mockRejectedValueOnce(databaseError);
+
+    await expect(getMovieByImdbId("tt0780504")).rejects.toThrow(
+        "Database unavailable",
+    );
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(writeDaoMocks.upsertMovie).not.toHaveBeenCalled();
   });
 });

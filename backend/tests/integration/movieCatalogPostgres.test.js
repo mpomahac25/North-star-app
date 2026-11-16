@@ -92,17 +92,39 @@ usePostgres("Movie DAOs with PostgreSQL", () => {
         releaseYear: 2011,
         ageRating: "R",
         posterUrl: "https://example.test/drive.jpg",
+        releaseDate: "2011-09-16",
+        genres: ["Action", "Drama"],
+        directors: ["Nicolas Winding Refn"],
+        writers: ["Hossein Amini", "James Sallis"],
+        actors: ["Ryan Gosling", "Carey Mulligan"],
+        languages: ["English", "Spanish"],
+        country: "United States",
+        awards: "Nominated for 1 Oscar.",
+        imdbRating: 7.8,
+        imdbVotes: 775952,
+        boxOffice: "$35,061,555",
       },
       databasePool,
     );
 
     expect(savedMovie).toMatchObject({
-      imdb_id: "tt0780504",
-      title: "Drive",
-      duration_minutes: 100,
-      release_year: 2011,
-      poster_url: "https://example.test/drive.jpg",
-      age_rating: "R",
+        imdbId: "tt0780504",
+        title: "Drive",
+        durationMinutes: 100,
+        releaseYear: 2011,
+        ageRating: "R",
+        posterUrl: "https://example.test/drive.jpg",
+        releaseDate: "2011-09-16",
+        genres: ["Action", "Drama"],
+        directors: ["Nicolas Winding Refn"],
+        writers: ["Hossein Amini", "James Sallis"],
+        actors: ["Ryan Gosling", "Carey Mulligan"],
+        languages: ["English", "Spanish"],
+        country: "United States",
+        awards: "Nominated for 1 Oscar.",
+        imdbRating: 7.8,
+        imdbVotes: 775952,
+        boxOffice: "$35,061,555",
     });
 
     const listedMovies = await listMovies(
@@ -120,6 +142,14 @@ usePostgres("Movie DAOs with PostgreSQL", () => {
       releaseYear: 2011,
       posterUrl: "https://example.test/drive.jpg",
       ageRating: "R",
+      releaseDate: "2011-09-16",
+      genres: ["Action", "Drama"],
+      directors: ["Nicolas Winding Refn"],
+      writers: ["Hossein Amini", "James Sallis"],
+      actors: ["Ryan Gosling", "Carey Mulligan"],
+      languages: ["English", "Spanish"],
+      imdbRating: 7.8,
+      imdbVotes: 775952,
     });
 
     await expect(
@@ -129,6 +159,37 @@ usePostgres("Movie DAOs with PostgreSQL", () => {
       imdbId: "tt0780504",
       title: "Drive",
     });
+
+    const storedGenres = await databasePool.query(
+        `SELECT g.name
+            FROM movie_genres mg
+            JOIN genres g ON g.id = mg.genre_id
+            WHERE mg.movie_id = $1
+            ORDER BY mg.display_order`,
+        [savedMovie.id],
+    );
+
+    expect(storedGenres.rows.map((row) => row.name)).toEqual([
+        "Action",
+        "Drama",
+    ]);
+
+    const storedCredits = await databasePool.query(
+        `SELECT p.name, mc.credit_type
+            FROM movie_credits mc
+            JOIN people p ON p.id = mc.person_id
+            WHERE mc.movie_id = $1
+            ORDER BY mc.credit_type, mc.display_order`,
+        [savedMovie.id],
+    );
+
+    expect(storedCredits.rows).toEqual([
+        { name: "Ryan Gosling", credit_type: "actor" },
+        { name: "Carey Mulligan", credit_type: "actor" },
+        { name: "Nicolas Winding Refn", credit_type: "director" },
+        { name: "Hossein Amini", credit_type: "writer" },
+        { name: "James Sallis", credit_type: "writer" },
+    ]);
   });
 
   test("upserts by IMDb ID instead of inserting duplicates", async () => {
@@ -141,6 +202,11 @@ usePostgres("Movie DAOs with PostgreSQL", () => {
         ageRating: "R",
         posterUrl: null,
         description: null,
+        genres: ["Action", "Sci-Fi"],
+        directors: ["Lana Wachowski", "Lilly Wachowski"],
+        writers: ["Lana Wachowski", "Lilly Wachowski"],
+        actors: ["Keanu Reeves", "Laurence Fishburne"],
+        languages: ["English"],
       },
       databasePool,
     );
@@ -154,6 +220,11 @@ usePostgres("Movie DAOs with PostgreSQL", () => {
         ageRating: null,
         posterUrl: null,
         description: "Updated plot.",
+        genres: ["Action", "Thriller"],
+        directors: ["Lana Wachowski", "Lilly Wachowski"],
+        writers: ["Lana Wachowski", "Lilly Wachowski"],
+        actors: ["Keanu Reeves"],
+        languages: ["English", "French"],
       },
       databasePool,
     );
@@ -167,6 +238,30 @@ usePostgres("Movie DAOs with PostgreSQL", () => {
       title: "The Matrix (Updated)",
       description: "Updated plot.",
       ageRating: null,
+    });
+
+    expect(updated.genres).toEqual(["Action", "Thriller"]);
+    expect(updated.actors).toEqual(["Keanu Reeves"]);
+    expect(updated.languages).toEqual(["English", "French"]);
+
+    const storedRelations = await databasePool.query(
+        `SELECT
+          (SELECT COUNT(*)::INTEGER
+          FROM movie_genres
+          WHERE movie_id = $1) AS genres,
+          (SELECT COUNT(*)::INTEGER
+          FROM movie_languages
+          WHERE movie_id = $1) AS languages,
+          (SELECT COUNT(*)::INTEGER
+          FROM movie_credits
+          WHERE movie_id = $1) AS credits`,
+        [updated.id],
+    );
+
+    expect(storedRelations.rows[0]).toEqual({
+        genres: 2,
+        languages: 2,
+        credits: 5,
     });
   });
 

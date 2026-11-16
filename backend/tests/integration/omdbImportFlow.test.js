@@ -26,13 +26,24 @@ if (testDatabaseConfigured) {
   moviesApp.get("/api/movies/title", (req, res) => {
     serviceCalls.push({ title: req.query.title, year: req.query.year });
     return res.json({
-      Title: "Drive",
-      Year: "2011",
-      imdbID: "tt9000001",
-      Runtime: "100 min",
-      Plot: "A stunt driver gets involved in a heist.",
-      Rated: "R",
-      Poster: "https://example.test/drive.jpg",
+        Title: "Drive",
+        Year: "2011",
+        imdbID: "tt9000001",
+        Runtime: "100 min",
+        Plot: "A stunt driver gets involved in a heist.",
+        Rated: "R",
+        Poster: "https://example.test/drive.jpg",
+        Released: "16 Sep 2011",
+        Genre: "Action, Drama",
+        Director: "Nicolas Winding Refn",
+        Writer: "Hossein Amini, James Sallis",
+        Actors: "Ryan Gosling, Carey Mulligan",
+        Language: "English, Spanish",
+        Country: "United States",
+        Awards: "Nominated for 1 Oscar.",
+        imdbRating: "7.8",
+        imdbVotes: "775,952",
+        BoxOffice: "$35,061,555",
     });
   });
 
@@ -74,14 +85,26 @@ usePostgres("OMDb import to PostgreSQL API flow", () => {
 
     expect(imported.status).toBe(200);
     expect(imported.body).toMatchObject({
-      imdb_id: "tt9000001",
-      title: "Drive",
-      duration_minutes: 100,
-      release_year: 2011,
-      age_rating: "R",
-      poster_url: "https://example.test/drive.jpg",
+        imdbId: "tt9000001",
+        title: "Drive",
+        durationMinutes: 100,
+        releaseYear: 2011,
+        ageRating: "R",
+        posterUrl: "https://example.test/drive.jpg",
+        genres: ["Action", "Drama"],
+        directors: ["Nicolas Winding Refn"],
+        writers: ["Hossein Amini", "James Sallis"],
+        actors: ["Ryan Gosling", "Carey Mulligan"],
+        languages: ["English", "Spanish"],
+        country: "United States",
+        awards: "Nominated for 1 Oscar.",
+        imdbVotes: 775952,
+        boxOffice: "$35,061,555",
     });
-    expect(serviceCalls).toEqual([{ title: "Drive", year: "2011" }]);
+
+    expect(imported.body.releaseDate).toMatch(/^2011-09-16/);
+    expect(Number(imported.body.imdbRating)).toBe(7.8);
+    expect(Number.isInteger(imported.body.id)).toBe(true);
 
     const catalog = await request(app).get("/api/movies?year=2011");
     expect(catalog.status).toBe(200);
@@ -92,6 +115,50 @@ usePostgres("OMDb import to PostgreSQL API flow", () => {
         releaseYear: 2011,
       }),
     );
+
+    const storedMovie = catalog.body.items.find(
+        (movie) => movie.imdbId === "tt9000001",
+    );
+
+    expect(storedMovie).toMatchObject({
+        id: imported.body.id,
+        title: "Drive",
+        genres: ["Action", "Drama"],
+        directors: ["Nicolas Winding Refn"],
+        actors: ["Ryan Gosling", "Carey Mulligan"],
+        languages: ["English", "Spanish"],
+    });
+
+    const movieById = await request(app).get(
+        `/api/movies/${imported.body.id}`,
+    );
+
+    expect(movieById.status).toBe(200);
+
+    expect(movieById.body).toMatchObject({
+        id: imported.body.id,
+        imdbId: "tt9000001",
+        title: "Drive",
+        genres: ["Action", "Drama"],
+        directors: ["Nicolas Winding Refn"],
+        actors: ["Ryan Gosling", "Carey Mulligan"],
+    });
+
+    const movieByImdbId = await request(app).get(
+        "/api/movies/tt9000001",
+    );
+
+    expect(movieByImdbId.status).toBe(200);
+
+    expect(movieByImdbId.body).toMatchObject({
+        id: imported.body.id,
+        imdbId: "tt9000001",
+        title: "Drive",
+    });
+
+    expect(serviceCalls).toEqual([
+        { title: "Drive", year: "2011" },
+    ]);
 
     const comingSoon = await request(app)
       .get("/api/movies/coming-soon")

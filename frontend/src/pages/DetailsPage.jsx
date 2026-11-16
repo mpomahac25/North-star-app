@@ -37,6 +37,32 @@ function cleanValue(value, fallback = "Not available") {
     return value && value !== "N/A" ? value : fallback;
 }
 
+function formatReleaseDate(value) {
+    if (!value) return "Not available";
+
+    const date = new Date(`${value}T00:00:00Z`);
+
+    return date.toLocaleDateString("en-GB", {
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        timeZone: "UTC",
+    });
+}
+
+function formatScreeningTime(value) {
+    return new Date(value).toLocaleString("en-GB", {
+        timeZone: "Europe/Helsinki",
+        weekday: "short",
+        day: "numeric",
+        month: "short",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+    });
+}
+
 export default function DetailsPage() {
     const { id } = useParams();
     const navigate = useNavigate();
@@ -45,6 +71,9 @@ export default function DetailsPage() {
     const [isLoading, setIsLoading] = useState(true);
     const [error, setError] = useState("");
     const [isSynopsisExpanded, setIsSynopsisExpanded] = useState(false);
+    const [screenings, setScreenings] = useState([]);
+    const [isLoadingScreenings, setIsLoadingScreenings] = useState(false);
+    const [screeningsError, setScreeningsError] = useState("");
 
     useEffect(() => {
         const controller = new AbortController();
@@ -67,39 +96,35 @@ export default function DetailsPage() {
                     );
                 }
 
-                const genres =
-                    data.Genre && data.Genre !== "N/A"
-                        ? data.Genre.split(",")
-                            .map((item) => item.trim())
-                            .filter(Boolean)
-                        : [];
-
-                const actors =
-                    data.Actors && data.Actors !== "N/A"
-                        ? data.Actors.split(",")
-                            .map((item) => item.trim())
-                            .filter(Boolean)
-                        : [];
-
                 setMovie({
-                    id: data.imdbID || id,
-                    title: data.Title || "Untitled movie",
-                    year: cleanValue(data.Year, ""),
-                    rated: cleanValue(data.Rated, "Unrated"),
-                    released: cleanValue(data.Released),
-                    poster: data.Poster && data.Poster !== "N/A" ? data.Poster : null,
-                    director: cleanValue(data.Director, "Unknown"),
-                    writer: cleanValue(data.Writer, "Unknown"),
-                    actors,
-                    genres,
-                    runtime: formatRuntime(data.Runtime),
-                    rating: cleanValue(data.imdbRating, "N/A"),
-                    votes: cleanValue(data.imdbVotes, ""),
-                    language: cleanValue(data.Language),
-                    country: cleanValue(data.Country),
-                    awards: cleanValue(data.Awards, "No awards listed"),
-                    boxOffice: cleanValue(data.BoxOffice, ""),
-                    synopsis: cleanValue(data.Plot, "No synopsis available for this movie."),
+                    id: data.id ?? id,
+                    title: cleanValue(data.title, "Untitled movie"),
+                    year: data.releaseYear ?? "",
+                    rated: cleanValue(data.ageRating, "Unrated"),
+                    released: formatReleaseDate(data.releaseDate),
+                    poster: data.posterUrl ?? null,
+                    director: cleanValue(data.directors?.join(", "), "Unknown"),
+                    writer: cleanValue(data.writers?.join(", "), "Unknown"),
+                    actors: data.actors ?? [],
+                    genres: data.genres ?? [],
+                    runtime: formatRuntime(
+                        Number.isInteger(data.durationMinutes)
+                            ? `${data.durationMinutes} min`
+                            : null,
+                    ),
+                    rating: data.imdbRating ?? "N/A",
+                    votes:
+                        data.imdbVotes == null
+                            ? ""
+                            : data.imdbVotes.toLocaleString("en-US"),
+                    language: cleanValue(data.languages?.join(", ")),
+                    country: cleanValue(data.country),
+                    awards: cleanValue(data.awards, "No awards listed"),
+                    boxOffice: cleanValue(data.boxOffice, ""),
+                    synopsis: cleanValue(
+                        data.description,
+                        "No synopsis available for this movie.",
+                    ),
                 });
             } catch (requestError) {
                 if (requestError.name !== "AbortError") {
@@ -116,6 +141,54 @@ export default function DetailsPage() {
         loadMovieDetails();
         return () => controller.abort();
     }, [id]);
+
+    const movieId = movie?.id;
+
+    useEffect(() => {
+        if (movieId === undefined || movieId === null) {
+            return;
+        }
+
+        const controller = new AbortController();
+
+        async function loadScreenings() {
+            setIsLoadingScreenings(true);
+            setScreenings([]);
+            setScreeningsError("");
+
+            try {
+                if (!Number.isSafeInteger(movieId)) {
+                    throw new Error("Invalid movie ID.");
+                }
+
+                const response = await fetch(`/api/movies/${movieId}/screenings`, {
+                    signal: controller.signal,
+                });
+
+                const data = await response.json();
+
+                if (!response.ok || !Array.isArray(data)) {
+                    throw new Error("Could not load upcoming screenings.");
+                }
+
+                if (!controller.signal.aborted) {
+                    setScreenings(data);
+                }
+            } catch (requestError) {
+                if (!controller.signal.aborted) {
+                    setScreeningsError("Could not load upcoming screenings.");
+                }
+            } finally {
+                if (!controller.signal.aborted) {
+                    setIsLoadingScreenings(false);
+                }
+            }
+        }
+
+        loadScreenings();
+
+        return () => controller.abort();
+    }, [movieId]);
 
     const handleChooseSeats = () => {
         navigate(`/seats/${movie.id}`);
@@ -373,6 +446,49 @@ export default function DetailsPage() {
                                     </div>
                                 </div>
 
+                                <div className="details-section-block">
+                                    <h3 className="details-section-heading">
+                                        <Calendar size={16} />
+                                        <span>Upcoming Screenings</span>
+                                    </h3>
+
+                                    {isLoadingScreenings && (
+                                        <p role="status">Loading upcoming screenings...</p>
+                                    )}
+
+                                    {!isLoadingScreenings && screeningsError && (
+                                        <p role="alert">{screeningsError}</p>
+                                    )}
+
+                                    {!isLoadingScreenings && !screeningsError && screenings.length === 0 && (
+                                        <p>No upcoming screenings scheduled.</p>
+                                    )}
+
+                                    {!isLoadingScreenings && !screeningsError && screenings.length > 0 && (
+                                        <div className="details-facts-grid">
+                                            {screenings.map((screening) => (
+                                                <div className="details-fact-card" key={screening.id}>
+                                                    <MapPin size={16} color="var(--gold-warm)" />
+
+                                                    <div>
+                                                        <span className="details-fact-label">
+                                                            {screening.theatreName} · {screening.city}
+                                                        </span>
+
+                                                        <p className="details-fact-value">
+                                                            {formatScreeningTime(screening.startTime)}
+                                                        </p>
+
+                                                        <span className="details-fact-label">
+                                                            {screening.roomName}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
                                 {/* Mobile Primary CTA Buttons */}
                                 <div className="details-mobile-cta mobile-only">
                                     <button
@@ -413,16 +529,27 @@ export default function DetailsPage() {
                                     <span className="booking-locations-label">
                                         Available at Rio Theaters
                                     </span>
-                                    <div className="booking-location-pills">
-                                        <span className="booking-location-pill">
-                                            <MapPin size={13} color="var(--gold-warm)" />
-                                            Oulu (2 rooms)
-                                        </span>
-                                        <span className="booking-location-pill">
-                                            <MapPin size={13} color="var(--gold-warm)" />
-                                            Tampere (2 rooms)
-                                        </span>
-                                    </div>
+
+                                    {screenings.length > 0 ? (
+                                        <div className="booking-location-pills">
+                                            {[...new Set(screenings.map((screening) => screening.city))].map(
+                                                (city) => (
+                                                    <span className="booking-location-pill" key={city}>
+                                                        <MapPin size={13} color="var(--gold-warm)" />
+                                                        {city}
+                                                    </span>
+                                                ),
+                                            )}
+                                        </div>
+                                    ) : (
+                                        <p className="booking-card-caption">
+                                            {isLoadingScreenings
+                                                ? "Checking screening availability..."
+                                                : screeningsError
+                                                    ? "Screening information is unavailable."
+                                                    : "No upcoming screenings scheduled."}
+                                        </p>
+                                    )}
                                 </div>
 
                                 <hr className="details-divider" />
