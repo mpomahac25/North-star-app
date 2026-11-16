@@ -1,8 +1,21 @@
 import request from "supertest";
 import { jest } from "@jest/globals";
-import backendApp from "../../../backend/app.js";
 import { createApp } from "../../app.js";
 import { assertApiError } from "../helpers/assertApiError.js";
+
+const movieReadDao = {
+    findMovieById: jest.fn(),
+    listMovies: jest.fn(),
+};
+
+const movieWriteDao = {
+    upsertMovie: jest.fn(),
+};
+
+jest.unstable_mockModule("../../../backend/dao/movies/movieReadDao.js", () => movieReadDao);
+jest.unstable_mockModule("../../../backend/dao/movies/movieWriteDao.js", () => movieWriteDao);
+
+const { default: backendApp } = await import("../../../backend/app.js");
 
 describe("Frontend and Backend Movies Integration", () => {
     let backendServer;
@@ -20,6 +33,9 @@ describe("Frontend and Backend Movies Integration", () => {
 
     afterEach(() => {
         jest.restoreAllMocks();
+        movieReadDao.findMovieById.mockReset();
+        movieReadDao.listMovies.mockReset();
+        movieWriteDao.upsertMovie.mockReset();
     });
 
     afterAll(async () => {
@@ -114,40 +130,32 @@ describe("Frontend and Backend Movies Integration", () => {
     });
 
     test("Retrieves and transforms coming-soon movies through both applications", async () => {
-        const upstreamFetch = jest.spyOn(globalThis, "fetch")
-            .mockImplementation(async (url) => {
-                const target = new URL(url);
-
-                expect(target.pathname).toBe("/api/movies/title");
-
-                return new Response(JSON.stringify({
-                    imdbID: "tt1234567",
-                    Title: target.searchParams.get("title"),
-                    Year: target.searchParams.get("year"),
-                    Poster: "N/A",
-                }), {
-                    status: 200,
-                    headers: {
-                        "Content-Type": "application/json",
-                    },
-                });
-            });
+        const upstreamFetch = jest.spyOn(globalThis, "fetch");
+        movieReadDao.listMovies.mockResolvedValueOnce({
+            total: 1,
+            items: [{
+                imdbId: "tt1234567",
+                title: "Coming Soon Test Movie",
+                releaseYear: 2026,
+                posterUrl: null,
+            }],
+        });
 
         const response = await request(frontendApp)
             .get("/api/movies/coming-soon");
 
         expect(response.status).toBe(200);
-        expect(response.body.length).toBeGreaterThan(0);
-
-        for (const movie of response.body) {
-            expect(movie).toEqual({
-                imdbId: expect.any(String),
-                title: expect.any(String),
-                year: expect.any(String),
-                poster: null,
-            });
-        }
-
-        expect(upstreamFetch).toHaveBeenCalledTimes(response.body.length);
+        expect(response.body).toEqual([{
+            imdbId: "tt1234567",
+            title: "Coming Soon Test Movie",
+            year: 2026,
+            poster: null,
+        }]);
+        expect(movieReadDao.listMovies).toHaveBeenCalledWith({
+            releaseYear: 2026,
+            limit: 1000,
+            offset: 0,
+        });
+        expect(upstreamFetch).not.toHaveBeenCalled();
     });
 });

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import pg from "pg";
@@ -54,13 +54,21 @@ usePostgres("Movie DAOs with PostgreSQL", () => {
     await adminPool.query(`CREATE SCHEMA "${schemaName}"`);
     schemaCreated = true;
 
-    const schemaPath = fileURLToPath(
-      new URL("../../../db/schema.sql", import.meta.url),
+    const migrationsPath = fileURLToPath(
+      new URL("../../../db/migrations/", import.meta.url),
     );
-    const schemaSql = await readFile(path.resolve(schemaPath), "utf8");
+    const migrationFiles = (await readdir(migrationsPath))
+      .filter((file) => /^V\d+__.*\.sql$/.test(file))
+      .sort();
     const client = await databasePool.connect();
     try {
-      await client.query(schemaSql);
+      for (const file of migrationFiles) {
+        const migrationSql = await readFile(
+          path.join(migrationsPath, file),
+          "utf8",
+        );
+        await client.query(migrationSql);
+      }
     } finally {
       client.release();
     }

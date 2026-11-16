@@ -21,6 +21,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./db/migrations/V002__payment.sql:/docker-entrypoint-initdb.d/02-payment.sql:ro
+      - ./db/migrations/V003__movie_imdb_id.sql:/docker-entrypoint-initdb.d/03-movie-imdb-id.sql:ro
 
     # Expose PostgreSQL only to the local host
     ports:
