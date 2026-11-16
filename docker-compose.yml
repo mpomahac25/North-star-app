@@ -37,6 +37,31 @@ services:
       retries: 5
       start_period: 20s
 
+  # Flyway
+  flyway:
+    image: flyway/flyway:13.12.1
+    profiles:
+      - tools
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    volumes:
+      - ./db/migrations:/flyway/sql:ro
+
+    environment:
+      FLYWAY_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-rio_theaters}
+      FLYWAY_USER: ${POSTGRES_USER:-rio}
+      FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env file}
+      FLYWAY_LOCATIONS: filesystem:/flyway/sql
+      FLYWAY_DEFAULT_SCHEMA: public
+      FLYWAY_SCHEMAS: public
+      FLYWAY_BASELINE_ON_MIGRATE: "false"
+      FLYWAY_CLEAN_DISABLED: "true"
+      FLYWAY_OUT_OF_ORDER: "false"
+      FLYWAY_VALIDATE_MIGRATION_NAMING: "true"
+
   # Frontend configuration
   frontend:
     image: docker.io/${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}/rio-theaters-frontend:${FRONTEND_VERSION:?FRONTEND_VERSION is required}
