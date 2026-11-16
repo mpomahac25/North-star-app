@@ -130,8 +130,9 @@
     display: none;
 }
 
+/* Fixed mobile card width so posters do not stretch */
 .movie-card-coming {
-    flex: 0 0 88%;
+    flex: 0 0 210px;
     scroll-snap-align: start;
     display: flex;
     flex-direction: column;
@@ -299,7 +300,7 @@
 
     .coming-soon-carousel {
         display: grid;
-        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+        grid-template-columns: repeat(4, 1fr);
         gap: 24px;
         overflow-x: visible;
     }

@@ -22,6 +22,7 @@ CREATE TABLE movies (
     duration_minutes INTEGER NOT NULL CHECK (duration_minutes > 0),
     release_year SMALLINT CHECK (release_year BETWEEN 1888 AND 2100),
     age_rating_id INTEGER REFERENCES age_ratings(id),
+    release_year SMALLINT CHECK (release_year BETWEEN 1888 AND 2100),
     poster_url TEXT
 );
 
