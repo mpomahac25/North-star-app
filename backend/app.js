@@ -171,33 +171,62 @@ app.get("/api/movies/search", async (req, res) => {
 });
 
 app.get("/api/movies/:id", async (req, res) => {
-  const id = Number(req.params.id);
-  if (!Number.isInteger(id) || id < 1) {
-    return res.status(400).json({
-      error: {
-        code: "INVALID_MOVIE_ID",
-        message: "Movie ID must be a positive integer.",
-      },
-    });
-  }
+    const { id } = req.params;
+    const numericId = Number(id);
 
-  try {
-    const movie = await getMovie(id);
-    if (!movie) {
-      return res.status(404).json({
-        error: { code: "MOVIE_NOT_FOUND", message: "Movie was not found." },
-      });
+    if (!Number.isNaN(numericId)) {
+        if (!Number.isInteger(numericId) || numericId < 1) {
+            return res.status(400).json({
+                error: {
+                    code: "INVALID_MOVIE_ID",
+                    message: "Movie ID must be a positive integer.",
+                },
+            });
+        }
+
+        try {
+            const movie = await getMovie(numericId);
+
+            if (!movie) {
+                return res.status(404).json({
+                    error: {
+                        code: "MOVIE_NOT_FOUND",
+                        message: "Movie was not found.",
+                    },
+                });
+            }
+
+            return res.json(movie);
+        } catch (error) {
+            console.error("Could not read movie from PostgreSQL:", error);
+
+            return res.status(500).json({
+                error: {
+                    code: "MOVIE_CATALOG_READ_FAILED",
+                    message: "Could not load movie from the database.",
+                },
+            });
+        }
     }
-    return res.json(movie);
-  } catch (error) {
-    console.error("Could not read movie from PostgreSQL:", error);
-    return res.status(500).json({
-      error: {
-        code: "MOVIE_CATALOG_READ_FAILED",
-        message: "Could not load movie from the database.",
-      },
-    });
-  }
+
+    try {
+        const safeId = encodeURIComponent(id);
+        const targetUrl = new URL(`/api/movies/${safeId}`, MOVIES_API_URL);
+
+        const response = await fetch(targetUrl);
+        const data = await response.json();
+
+        return res.status(response.status).json(data);
+    } catch (error) {
+        console.error("Could not fetch movie details from movies service:", error);
+
+        return res.status(502).json({
+            error: {
+                code: "MOVIES_SERVICE_UNAVAILABLE",
+                message: "Could not load movie details from the movies service.",
+            },
+        });
+    }
 });
 
 app.post("/api/movies/import", async (req, res) => {
@@ -239,26 +268,6 @@ app.post("/api/movies/import", async (req, res) => {
       },
     });
   }
-});
-
-app.get("/api/movies/:imdbId", async (req, res) => {
-    try {
-        const safeId = encodeURIComponent(req.params.imdbId);
-        const targetUrl = new URL(`/api/movies/${safeId}`, MOVIES_API_URL);
-
-        const response = await fetch(targetUrl);
-        const data = await response.json();
-
-        return res.status(response.status).json(data);
-    } catch (error) {
-        console.error("Could not fetch movie details from movies service:", error);
-        return res.status(502).json({
-            error: {
-                code: "MOVIES_SERVICE_UNAVAILABLE",
-                message: "Could not load movie details from the movies service.",
-            },
-        });
-    }
 });
 
 // MUST BE KEPT AFTER ALL ROUTES!!!
