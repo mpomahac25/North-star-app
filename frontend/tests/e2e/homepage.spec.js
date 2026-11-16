@@ -83,6 +83,13 @@ test.describe("Homepage", () => {
         await expect(
             page.getByRole("heading", { name: "Movie 9" }),
         ).toHaveCount(0);
+
+        await page.getByRole("heading", {
+            name: "Movie 8",
+            exact: true,
+        }).click();
+
+        await expect(page).toHaveURL(/\/details\/tt1000007$/);
     });
 
     test("Displays an empty-state message when no movies are available", async ({ page }) => {
@@ -131,6 +138,14 @@ test.describe("Homepage", () => {
         await expect(
             page.getByRole("status").filter({ hasText: "Loading movies" }),
         ).toHaveCount(0);
+
+        const drive = page.locator(".movie-card-coming").filter({
+            has: page.getByRole("heading", { name: "Drive", exact: true }),
+        });
+
+        await drive.click();
+
+        await expect(page).toHaveURL(/\/details\/tt0780504$/);
     });
 
     for (const { status, code } of [
@@ -249,4 +264,85 @@ test.describe("Homepage", () => {
         await expect(movieCard.locator(".release-date")).toHaveText("2011");
         await expect(movieCard.locator("img")).toHaveCount(0);
     });
+
+    test("Navigates between featured movies and supports browser history", async ({ page }) => {
+        await page.setViewportSize({
+            width: 1280,
+            height: 800,
+        });
+
+        await mockFeaturedMovies(page);
+        await page.goto("/");
+
+        const drive = page.locator(".movie-card-coming").filter({
+            has: page.getByRole("heading", { name: "Drive", exact: true }),
+        });
+
+        await drive.locator(".poster-wrapper").click();
+
+        await expect(page).toHaveURL(/\/details\/tt0780504$/);
+
+        await page.goBack();
+
+        await expect(
+            page.getByRole("heading", { name: "Featured Movies" }),
+        ).toBeVisible();
+
+        const laLaLand = page.locator(".movie-card-coming").filter({
+            has: page.getByRole("heading", { name: "La La Land", exact: true }),
+        });
+
+        await laLaLand.locator(".movie-card-footer").click();
+
+        await expect(page).toHaveURL(/\/details\/tt3783958$/);
+    });
+
+    test("Navigates to movie details from a mobile card without a poster", async ({ page }) => {
+        await page.setViewportSize({
+            width: 390,
+            height: 844,
+        });
+
+        await mockFeaturedMovies(page, [
+            {
+                ...featuredMovies[1],
+                poster: null,
+            },
+        ]);
+
+        await page.goto("/");
+
+        const movieCard = page.locator(".movie-card-coming");
+
+        await expect(movieCard).toHaveCount(1);
+        await expect(movieCard.locator("img")).toHaveCount(0);
+
+        await movieCard.getByRole("heading", {
+            name: "La La Land",
+            exact: true,
+        }).click();
+
+        await expect(page).toHaveURL(/\/details\/tt3783958$/);
+    });
+
+    test("Rejects featured movie data containing a missing IMDb ID", async ({ page }) => {
+        await mockFeaturedMovies(page, [
+            featuredMovies[0],
+            {
+                title: "Movie Without ID",
+                year: "2026",
+                poster,
+            },
+        ]);
+
+        await page.goto("/");
+
+        await expect(page.getByRole("alert")).toHaveText(
+            "Could not load movies. Please try again later.",
+        );
+
+        await expect(page.locator(".movie-card-coming")).toHaveCount(0);
+    });
+
+
 });
