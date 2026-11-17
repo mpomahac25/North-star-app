@@ -33,35 +33,40 @@ describe("Movies API routes", () => {
     }
   });
 
-  test("validates title lookup inputs before calling OMDb", async () => {
-    const missingTitle = await request(app).get("/api/movies/title");
-    const invalidYear = await request(app)
-      .get("/api/movies/title")
-      .query({ title: "Drive", year: "20xx" });
+  test.each([
+    [{}, "title"],
+    [{ title: "" }, "title"],
+    [{ title: "   " }, "title"],
+    [{ title: "A".repeat(101) }, "title"],
+    [{ title: "Drive", year: "20xx" }, "year"],
+    [{ title: "Drive", year: "201" }, "year"],
+  ])("rejects invalid title lookup parameters %j", async (params, field) => {
+    const response = await request(app)
+        .get("/api/movies/title")
+        .query(params);
 
-    expect(missingTitle.status).toBe(400);
-    expect(missingTitle.body.error).toContain('"title"');
-    expect(invalidYear.status).toBe(400);
-    expect(invalidYear.body.error).toContain('"year"');
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain(`"${field}"`);
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  test("validates search query, page, year, and type before calling OMDb", async () => {
-    const missingQuery = await request(app).get("/api/movies/search");
-    const invalidPage = await request(app)
-      .get("/api/movies/search")
-      .query({ q: "Drive", page: 0 });
-    const invalidYear = await request(app)
-      .get("/api/movies/search")
-      .query({ q: "Drive", year: "201x" });
-    const invalidType = await request(app)
-      .get("/api/movies/search")
-      .query({ q: "Drive", type: "documentary" });
+  test.each([
+    [{}, "q"],
+    [{ q: "" }, "q"],
+    [{ q: "   " }, "q"],
+    [{ q: "A".repeat(101) }, "q"],
+    [{ q: "Drive", page: 0 }, "page"],
+    [{ q: "Drive", page: 101 }, "page"],
+    [{ q: "Drive", page: 1.5 }, "page"],
+    [{ q: "Drive", year: "201x" }, "year"],
+    [{ q: "Drive", type: "documentary" }, "type"],
+  ])("rejects invalid search parameters %j", async (params, field) => {
+    const response = await request(app)
+        .get("/api/movies/search")
+        .query(params);
 
-    expect(missingQuery.status).toBe(400);
-    expect(invalidPage.status).toBe(400);
-    expect(invalidYear.status).toBe(400);
-    expect(invalidType.status).toBe(400);
+    expect(response.status).toBe(400);
+    expect(response.body.error).toContain(`"${field}"`);
     expect(fetch).not.toHaveBeenCalled();
   });
 
@@ -121,7 +126,7 @@ describe("Movies API routes", () => {
     expect(requestUrl.searchParams.get("i")).toBe("tt0780504");
   });
 
-  test("maps an OMDb missing-key response to HTTP 503", async () => {
+  test("maps an invalid OMDb API key response to HTTP 503", async () => {
     fetch.mockResolvedValueOnce(
       jsonResponse({ Error: "Invalid API key!" }, 401),
     );
@@ -161,5 +166,84 @@ describe("Movies API routes", () => {
 
     expect(response.status).toBe(502);
     expect(response.body).toEqual({ error: "OMDb request timed out." });
+  });
+
+  test("normalizes title lookup input before forwarding it to OMDb", async () => {
+    const payload = {
+        Title: "Drive",
+        Year: "2011",
+        imdbID: "tt0780504",
+    };
+
+    fetch.mockResolvedValueOnce(jsonResponse(payload));
+
+    const response = await request(app)
+        .get("/api/movies/title")
+        .query({
+            title: "  Drive  ",
+            year: "2011",
+        });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(payload);
+
+    const requestUrl = new URL(fetch.mock.calls[0][0]);
+
+    expect(requestUrl.searchParams.get("t")).toBe("Drive");
+    expect(requestUrl.searchParams.get("y")).toBe("2011");
+  });
+
+  test("uses the default search page and trims the search query", async () => {
+    const payload = {
+        Search: [],
+        totalResults: "0",
+        Response: "True",
+    };
+
+    fetch.mockResolvedValueOnce(jsonResponse(payload));
+
+    const response = await request(app)
+        .get("/api/movies/search")
+        .query({ q: "  Drive  " });
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(payload);
+
+    const requestUrl = new URL(fetch.mock.calls[0][0]);
+
+    expect(requestUrl.searchParams.get("s")).toBe("Drive");
+    expect(requestUrl.searchParams.get("page")).toBe("1");
+    expect(requestUrl.searchParams.has("y")).toBe(false);
+    expect(requestUrl.searchParams.has("type")).toBe(false);
+  });
+
+  test("returns HTTP 404 when an IMDb ID is not found", async () => {
+    fetch.mockResolvedValueOnce(
+        jsonResponse({
+            Response: "False",
+            Error: "Movie not found!",
+        }),
+    );
+
+    const response = await request(app)
+        .get("/api/movies/tt9999999");
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({
+        error: "Movie not found.",
+    });
+  });
+
+  test("returns HTTP 502 when OMDb provides invalid response data", async () => {
+    fetch.mockResolvedValueOnce(jsonResponse(null));
+
+    const response = await request(app)
+        .get("/api/movies/title")
+        .query({ title: "Drive" });
+
+    expect(response.status).toBe(502);
+    expect(response.body).toEqual({
+        error: "OMDb returned an invalid response.",
+    });
   });
 });
