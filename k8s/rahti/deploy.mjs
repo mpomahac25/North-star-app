@@ -119,6 +119,14 @@ function createDeployment(component) {
         environment.MOVIES_API_URL = `http://movies:${getPort(movies)}`;
     }
 
+    if (component.name === 'login') {
+        environment.DB_HOST = 'postgres';
+        environment.DB_PORT = '5432';
+        environment.GOOGLE_REDIRECT_URI = 'https://rio-theaters.2.rahtiapp.fi/api/auth/google/callback';
+        environment.FRONTEND_URL = 'https://rio-theaters.2.rahtiapp.fi';
+        environment.SESSION_COOKIE_SECURE = 'true';
+    }
+
     return {
         apiVersion: 'apps/v1',
         kind: 'Deployment',
@@ -178,6 +186,55 @@ function createDeployment(component) {
                                             }
                                         }
                                     }]
+                                    : []),
+                                ...(component.name === 'login'
+                                    ? [
+                                        {
+                                            name: 'DB_NAME',
+                                            valueFrom: {
+                                                secretKeyRef: {
+                                                    name: 'rio-postgres',
+                                                    key: 'POSTGRESQL_DATABASE'
+                                                }
+                                            }
+                                        },
+                                        {
+                                            name: 'DB_USER',
+                                            valueFrom: {
+                                                secretKeyRef: {
+                                                    name: 'rio-postgres',
+                                                    key: 'POSTGRESQL_USER'
+                                                }
+                                            }
+                                        },
+                                        {
+                                            name: 'DB_PASSWORD',
+                                            valueFrom: {
+                                                secretKeyRef: {
+                                                    name: 'rio-postgres',
+                                                    key: 'POSTGRESQL_PASSWORD'
+                                                }
+                                            }
+                                        },
+                                        {
+                                            name: 'GOOGLE_CLIENT_ID',
+                                            valueFrom: {
+                                                secretKeyRef: {
+                                                    name: 'rio-google-oauth',
+                                                    key: 'GOOGLE_CLIENT_ID'
+                                                }
+                                            }
+                                        },
+                                        {
+                                            name: 'GOOGLE_CLIENT_SECRET',
+                                            valueFrom: {
+                                                secretKeyRef: {
+                                                    name: 'rio-google-oauth',
+                                                    key: 'GOOGLE_CLIENT_SECRET'
+                                                }
+                                            }
+                                        }
+                                    ]
                                     : [])
                             ],
 

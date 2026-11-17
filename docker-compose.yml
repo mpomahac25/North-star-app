@@ -22,6 +22,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./db/migrations/V003__google_auth.sql:/docker-entrypoint-initdb.d/03-google-auth.sql:ro
 
     # Expose PostgreSQL only to the local host
     ports:
@@ -112,6 +113,11 @@ services:
     environment:
       <<: *db-environment
       LOGIN_PORT: ${LOGIN_PORT:-3003}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:3003/api/auth/google/callback}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
 
     # Wait until the database is healthy before starting
     depends_on:
