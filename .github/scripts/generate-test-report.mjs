@@ -8,6 +8,7 @@ const databaseRequired = process.env.DATABASE_REQUIRED !== 'false';
 const components = [
     ['frontend', 'Frontend Jest'],
     ['backend', 'Backend Jest'],
+    ['backend-db', 'Backend PostgreSQL'],
     ['booking', 'Booking Jest'],
     ['login', 'Login Jest'],
     ['payment', 'Payment Jest'],
@@ -52,7 +53,7 @@ const groups = [];
 let incomplete = false;
 
 for (const [id, label] of components) {
-    if (id === 'database' && !databaseRequired) {
+    if ((id === 'database' || id === 'backend-db') && !databaseRequired) {
         groups.push({
             id,
             label,
@@ -104,11 +105,21 @@ for (const [id, label] of components) {
             category: testCategory(test, id)
         }));
 
-        const state = tests.length > 0
-            ? 'reported'
-            : 'empty report';
+        const unexpectedSkips =
+            databaseRequired &&
+            (id === 'database' || id === 'backend-db') &&
+            tests.some(test =>
+                test.status === 'skipped' ||
+                test.status === 'pending'
+            );
 
-        if (tests.length === 0) {
+        const state = tests.length === 0
+            ? 'empty report'
+            : unexpectedSkips
+                ? 'unexpected skipped tests'
+                : 'reported';
+
+        if (tests.length === 0 || unexpectedSkips) {
             incomplete = true;
         }
 

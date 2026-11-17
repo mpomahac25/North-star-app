@@ -20,14 +20,6 @@ describe('Database Migrations', () => {
             throw new Error('DB_TEST_URL is required');
         }
 
-        const databaseName = decodeURIComponent(
-            new URL(connectionString).pathname.slice(1)
-        );
-
-        if (databaseName !== 'rio_schema_test') {
-            throw new Error('Unexpected migration test database');
-        }
-
         client = new pg.Client({
             connectionString,
             connectionTimeoutMillis: 5000

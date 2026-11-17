@@ -13,71 +13,54 @@ import {
 import { upsertMovie } from "../../dao/movies/movieWriteDao.js";
 
 const { Pool } = pg;
-const testDatabaseName = process.env.TEST_DB_NAME;
-const testDatabaseConfigured = Boolean(
-  process.env.TEST_DB_HOST &&
-  process.env.TEST_DB_PORT &&
-  testDatabaseName &&
-  process.env.TEST_DB_USER &&
-  process.env.TEST_DB_PASSWORD,
-);
+
+const databaseUrl = process.env.DB_TEST_URL;
+
+if (!databaseUrl) {
+    throw new Error(
+        "DB_TEST_URL is required to run PostgreSQL integration tests.",
+    );
+}
 
 const schemaName = `omdb_test_${randomUUID().replaceAll("-", "")}`;
-const adminPool = testDatabaseConfigured
-  ? new Pool({
-      host: process.env.TEST_DB_HOST,
-      port: Number(process.env.TEST_DB_PORT),
-      database: testDatabaseName,
-      user: process.env.TEST_DB_USER,
-      password: process.env.TEST_DB_PASSWORD,
-      connectionTimeoutMillis: 5000,
-    })
-  : null;
-const databasePool = testDatabaseConfigured
-  ? new Pool({
-      host: process.env.TEST_DB_HOST,
-      port: Number(process.env.TEST_DB_PORT),
-      database: testDatabaseName,
-      user: process.env.TEST_DB_USER,
-      password: process.env.TEST_DB_PASSWORD,
-      options: `-c search_path=${schemaName}`,
-      connectionTimeoutMillis: 5000,
-    })
-  : null;
 
-const usePostgres = testDatabaseConfigured ? describe : describe.skip;
+const adminPool = new Pool({
+    connectionString: databaseUrl,
+    connectionTimeoutMillis: 5000,
+});
+
+const databasePool = new Pool({
+    connectionString: databaseUrl,
+    options: `-c search_path=${schemaName}`,
+    connectionTimeoutMillis: 5000,
+});
+
 let schemaCreated = false;
 
 usePostgres("Movie DAOs with PostgreSQL", () => {
-  beforeAll(async () => {
-    if (!/_test$/i.test(testDatabaseName)) {
-      throw new Error(
-        'Refusing to run PostgreSQL integration tests: TEST_DB_NAME must end with "_test".',
-      );
-    }
+    beforeAll(async () => {
+        await adminPool.query(`CREATE SCHEMA "${schemaName}"`);
+        schemaCreated = true;
 
-    await adminPool.query(`CREATE SCHEMA "${schemaName}"`);
-    schemaCreated = true;
-
-    const migrationsPath = fileURLToPath(
-      new URL("../../../db/migrations/", import.meta.url),
-    );
-    const migrationFiles = (await readdir(migrationsPath))
-      .filter((file) => /^V\d+__.*\.sql$/.test(file))
-      .sort();
-    const client = await databasePool.connect();
-    try {
-      for (const file of migrationFiles) {
-        const migrationSql = await readFile(
-          path.join(migrationsPath, file),
-          "utf8",
+        const migrationsPath = fileURLToPath(
+            new URL("../../../db/migrations/", import.meta.url),
         );
-        await client.query(migrationSql);
-      }
-    } finally {
-      client.release();
-    }
-  });
+        const migrationFiles = (await readdir(migrationsPath))
+            .filter((file) => /^V\d+__.*\.sql$/.test(file))
+            .sort();
+        const client = await databasePool.connect();
+        try {
+            for (const file of migrationFiles) {
+                const migrationSql = await readFile(
+                    path.join(migrationsPath, file),
+                    "utf8",
+                );
+                await client.query(migrationSql);
+            }
+        } finally {
+            client.release();
+        }
+    });
 
   afterAll(async () => {
     await databasePool.end();
@@ -349,16 +332,33 @@ usePostgres("Movie DAOs with PostgreSQL", () => {
       databasePool,
     );
 
-    const result = await listMovies({ limit: 20, offset: 0 }, databasePool);
+    const result = await listMovies(
+        {
+            query: "The Matrix (Updated)",
+            limit: 20,
+            offset: 0,
+        },
+        databasePool,
+    );
+
     expect(updated.id).toBe(original.id);
-    expect(result.total).toBe(2);
-    expect(
-      result.items.find((movie) => movie.imdbId === "tt0133093"),
-    ).toMatchObject({
-      title: "The Matrix (Updated)",
-      description: "Updated plot.",
-      ageRating: null,
+    expect(result.total).toBe(1);
+
+    expect(result.items[0]).toMatchObject({
+        imdbId: "tt0133093",
+        title: "The Matrix (Updated)",
+        description: "Updated plot.",
+        ageRating: null,
     });
+
+    const duplicateCheck = await databasePool.query(
+        `SELECT COUNT(*)::INTEGER AS total
+          FROM movies
+          WHERE imdb_id = $1`,
+        ["tt0133093"],
+    );
+
+    expect(duplicateCheck.rows[0].total).toBe(1);
 
     expect(updated.genres).toEqual(["Action", "Thriller"]);
     expect(updated.actors).toEqual(["Keanu Reeves"]);

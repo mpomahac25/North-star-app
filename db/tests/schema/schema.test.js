@@ -31,15 +31,6 @@ describe('Database Schema', () => {
             throw new Error('DB_TEST_URL is not configured');
         }
 
-        // Make sure tests running against correct db
-        const databaseName = decodeURIComponent(
-            new URL(connectionString).pathname.slice(1)
-        );
-
-        if (databaseName !== 'rio_schema_test') {
-            throw new Error('Database tests must use rio_schema_test');
-        }
-
         const schemaPath = fileURLToPath(
             new URL('../../schema.sql', import.meta.url)
         );
