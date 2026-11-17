@@ -38,7 +38,7 @@ const databasePool = new Pool({
 
 let schemaCreated = false;
 
-usePostgres("Movie DAOs with PostgreSQL", () => {
+describe("Movie DAOs with PostgreSQL", () => {
   beforeAll(async () => {
         await adminPool.query(`CREATE SCHEMA "${schemaName}"`);
         schemaCreated = true;
