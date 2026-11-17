@@ -372,7 +372,7 @@ test.describe("Homepage", () => {
                 invalidMovie,
             ]);
 
-            await page.goto("/");
+            await page.goto("/", { waitUntil: "domcontentloaded" });
 
             await expect(page.getByRole("alert")).toHaveText(
                 "Could not load movies. Please try again later.",
