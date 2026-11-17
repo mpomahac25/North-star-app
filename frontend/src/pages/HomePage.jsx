@@ -16,30 +16,35 @@ export default function HomePage() {
 
         async function loadFeaturedMovies() {
             try {
-                const response = await fetch("/api/movies/coming-soon", {
+                const response = await fetch("/api/movies?page=1&limit=8", {
                     signal: controller.signal,
                 });
-                const movies = await response.json();
+                const data = await response.json();
 
                 if (!response.ok) {
                     throw new Error(
-                        movies.error?.message || "Could not load movies. Please try again later.",
+                        data.error?.message || "Could not load movies. Please try again later.",
                     );
                 }
 
-                if (!Array.isArray(movies)) {
+                if (!Array.isArray(data.items)) {
                     throw new Error("Could not load movies. Please try again later.");
                 }
 
-                // Check if any movie entry in the array is missing required fields
-                const hasInvalidMovie = movies.some(
-                    (m) => !m || typeof m !== "object" || !m.title || !m.imdbId,
+                const hasInvalidMovie = data.items.some(
+                    (m) =>
+                        !m ||
+                        typeof m !== "object" ||
+                        !m.title ||
+                        !Number.isSafeInteger(m.id) ||
+                        m.id <= 0,
                 );
+
                 if (hasInvalidMovie) {
                     throw new Error("Could not load movies. Please try again later.");
                 }
 
-                setFeaturedMovies(movies.slice(0, 8));
+                setFeaturedMovies(data.items.slice(0, 8));
             } catch (error) {
                 if (error.name !== "AbortError") {
                     setMoviesError("Could not load movies. Please try again later.");
@@ -123,14 +128,14 @@ export default function HomePage() {
                         featuredMovies.map((movie) => (
                             <div
                                 className="movie-card-coming"
-                                key={movie.imdbId}
-                                onClick={() => navigate(`/details/${movie.imdbId}`)}
+                                key={movie.id}
+                                onClick={() => navigate(`/details/${movie.id}`)}
                             >
                                 <div className="poster-wrapper">
-                                    {movie.poster && (
+                                    {movie.posterUrl && (
                                         <img
-                                            src={movie.poster}
-                                            alt={`${movie.title} (${movie.year}) poster`}
+                                            src={movie.posterUrl}
+                                            alt={`${movie.title} (${movie.releaseYear ?? "N/A"}) poster`}
                                             className="poster-img"
                                         />
                                     )}
@@ -138,7 +143,7 @@ export default function HomePage() {
                                 <div className="movie-card-footer">
                                     <div>
                                         <h3 className="movie-title">{movie.title}</h3>
-                                        <span className="release-date">{movie.year}</span>
+                                        <span className="release-date">{movie.releaseYear ?? ""}</span>
                                     </div>
                                 </div>
                             </div>

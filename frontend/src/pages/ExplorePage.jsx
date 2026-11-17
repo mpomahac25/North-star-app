@@ -74,7 +74,6 @@ export default function ExplorePage() {
             const controller = new AbortController();
             abortControllerRef.current = controller;
             const trimmedQuery = query.trim();
-            const searchQuery = trimmedQuery || "movie";
 
             if (isPageTransition) {
                 setIsLoadingMore(true);
@@ -90,10 +89,18 @@ export default function ExplorePage() {
                 let url = "";
 
                 if (activeTab === "showing") {
-                    url = "/api/movies/coming-soon";
+                    url = "/api/movies/now-showing";
                 } else {
-                    const safeQuery = encodeURIComponent(searchQuery);
-                    url = `/api/movies/search?q=${safeQuery}&page=${requestedPage}&type=movie`;
+                    const params = new URLSearchParams({
+                        page: String(requestedPage),
+                        limit: "10",
+                    });
+
+                    if (trimmedQuery) {
+                        params.set("q", trimmedQuery);
+                    }
+
+                    url = `/api/movies?${params.toString()}`;
                 }
 
                 const response = await fetch(url, { signal: controller.signal });
@@ -107,33 +114,46 @@ export default function ExplorePage() {
                     throw new Error(data.error?.message || data.error || "Could not load movies.");
                 }
 
-                if (!Array.isArray(data) && !data.Search && !data.movies && !data.results) {
+                if (!Array.isArray(data) && !Array.isArray(data?.items)) {
                     throw new Error("Could not load movies. Please try again later.");
                 }
 
-                const rawList = Array.isArray(data)
-                    ? data
-                    : data.Search || data.movies || data.results || [];
+                const rawList = Array.isArray(data) ? data : data.items;
 
-                const totalResults = Number(data.totalResults || 0);
+                const totalResults = Array.isArray(data)
+                    ? rawList.length
+                    : Number(data.total ?? 0);
 
-                const formattedList = rawList.map((movie, index) => ({
-                    id: movie.imdbID || movie.imdbId || movie.id,
-                    title: movie.Title || movie.title,
-                    year: movie.Year || movie.year,
-                    poster:
-                        movie.Poster === "N/A" || movie.poster === "N/A"
-                            ? null
-                            : movie.Poster || movie.poster,
-                    screenings:
-                        index % 2 === 0
-                            ? ["Oulu 18:00", "Tampere 20:30"]
-                            : ["Oulu 19:15", "Tampere 17:45"],
+                const formattedList = rawList.map((movie) => ({
+                    id: movie.id ?? movie.imdbId,
+                    title: movie.title,
+                    year: movie.releaseYear ?? movie.year ?? "",
+                    poster: movie.posterUrl ?? movie.poster ?? null,
+                    screenings: (movie.screenings ?? [])
+                        .slice(0, 3)
+                        .map((screening) => {
+                            const date = new Date(screening.startTime);
+
+                            const formattedTime = date.toLocaleString("en-GB", {
+                                timeZone: "Europe/Helsinki",
+                                day: "numeric",
+                                month: "short",
+                                hour: "2-digit",
+                                minute: "2-digit",
+                                hour12: false,
+                            });
+
+                            return `${screening.city} ${formattedTime}`;
+                        }),
                 }));
 
                 setMovies(formattedList);
                 setPage(requestedPage);
-                setTotalPages(Math.min(100, Math.ceil(totalResults / 10)));
+                setTotalPages(
+                    activeTab === "showing"
+                        ? 0
+                        : Math.ceil(totalResults / 10),
+                );
 
                 if (isPageTransition) {
                     window.scrollTo({ top: 0, behavior: "smooth" });

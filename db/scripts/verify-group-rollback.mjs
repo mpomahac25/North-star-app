@@ -14,12 +14,9 @@ if (!connectionString) {
 const database = new URL(connectionString);
 const databaseName = decodeURIComponent(database.pathname.slice(1));
 
-if (
-    databaseName !== 'rio_schema_test' ||
-    !['localhost', '127.0.0.1'].includes(database.hostname)
-) {
+if (!databaseName) {
     throw new Error(
-        'Rollback verification requires a local rio_schema_test database'
+        'DB_TEST_URL must specify a database name.'
     );
 }
 
@@ -29,9 +26,16 @@ const directory = mkdtempSync(
     path.join(tmpdir(), 'rio-flyway-rollback-')
 );
 
-const dockerHost = process.platform === 'linux'
-    ? '127.0.0.1'
-    : 'host.docker.internal';
+const isLocalDatabase = [
+    'localhost',
+    '127.0.0.1'
+].includes(database.hostname);
+
+const dockerHost = isLocalDatabase
+    ? process.platform === 'linux'
+        ? '127.0.0.1'
+        : 'host.docker.internal'
+    : database.hostname;
 
 const dockerNetwork = process.platform === 'linux'
     ? ['--network', 'host']
