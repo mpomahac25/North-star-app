@@ -39,7 +39,7 @@ export default function HomePage() {
                     throw new Error("Could not load movies. Please try again later.");
                 }
 
-                setFeaturedMovies(data.items);
+                setFeaturedMovies(data.items.slice(0, 8));
             } catch (error) {
                 if (error.name !== "AbortError") {
                     setMoviesError("Could not load movies. Please try again later.");

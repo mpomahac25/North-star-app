@@ -4,35 +4,56 @@ const poster = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
 
 const featuredMovies = [
     {
+        id: 42,
         imdbId: "tt0780504",
         title: "Drive",
-        year: "2011",
-        poster,
+        releaseYear: 2011,
+        posterUrl: poster,
     },
     {
+        id: 43,
         imdbId: "tt3783958",
         title: "La La Land",
-        year: "2016",
-        poster,
+        releaseYear: 2016,
+        posterUrl: poster,
     },
 ];
 
 async function mockFeaturedMovies(page, body = featuredMovies, status = 200) {
+    const responseBody = Array.isArray(body)
+        ? {
+            items: body,
+            total: body.length,
+            page: 1,
+            limit: 8,
+        }
+        : body;
+
     await page.route(
-        (url) => url.pathname === "/api/movies/coming-soon",
+        (url) => url.pathname === "/api/movies",
         (route) =>
             route.fulfill({
                 status,
                 contentType: "application/json",
-                body: JSON.stringify(body),
+                body: JSON.stringify(responseBody),
             }),
     );
 }
 
 test.describe("Homepage", () => {
     test("Displays homepage content and movie information", async ({ page }) => {
+        const movieRequest = page.waitForRequest(
+            (request) => new URL(request.url()).pathname === "/api/movies",
+        );
+
         await mockFeaturedMovies(page);
         await page.goto("/");
+
+        const request = await movieRequest;
+        const params = new URL(request.url()).searchParams;
+
+        expect(params.get("page")).toBe("1");
+        expect(params.get("limit")).toBe("8");
 
         await expect(
             page.getByRole("heading", { name: "Featured Movies" }),
@@ -65,10 +86,11 @@ test.describe("Homepage", () => {
 
     test("Displays a maximum of eight featured movies", async ({ page }) => {
         const movies = Array.from({ length: 10 }, (_, index) => ({
+            id: 100 + index,
             imdbId: `tt${1000000 + index}`,
             title: `Movie ${index + 1}`,
-            year: "2026",
-            poster,
+            releaseYear: 2026,
+            posterUrl: poster,
         }));
 
         await mockFeaturedMovies(page, movies);
@@ -89,7 +111,7 @@ test.describe("Homepage", () => {
             exact: true,
         }).click();
 
-        await expect(page).toHaveURL(/\/details\/tt1000007$/);
+        await expect(page).toHaveURL(/\/details\/107$/);
     });
 
     test("Displays an empty-state message when no movies are available", async ({ page }) => {
@@ -111,14 +133,19 @@ test.describe("Homepage", () => {
         });
 
         await page.route(
-            (url) => url.pathname === "/api/movies/coming-soon",
+            (url) => url.pathname === "/api/movies",
             async (route) => {
                 await responseGate;
 
                 await route.fulfill({
                     status: 200,
                     contentType: "application/json",
-                    body: JSON.stringify(featuredMovies),
+                    body: JSON.stringify({
+                        items: featuredMovies,
+                        total: featuredMovies.length,
+                        page: 1,
+                        limit: 8,
+                    }),
                 });
             },
         );
@@ -145,7 +172,7 @@ test.describe("Homepage", () => {
 
         await drive.click();
 
-        await expect(page).toHaveURL(/\/details\/tt0780504$/);
+        await expect(page).toHaveURL(/\/details\/42$/);
     });
 
     for (const { status, code } of [
@@ -176,7 +203,7 @@ test.describe("Homepage", () => {
 
     test("Handles network failures", async ({ page }) => {
         await page.route(
-            (url) => url.pathname === "/api/movies/coming-soon",
+            (url) => url.pathname === "/api/movies",
             (route) => route.abort("failed"),
         );
 
@@ -191,7 +218,7 @@ test.describe("Homepage", () => {
 
     test("Handles malformed JSON responses", async ({ page }) => {
         await page.route(
-            (url) => url.pathname === "/api/movies/coming-soon",
+            (url) => url.pathname === "/api/movies",
             (route) =>
                 route.fulfill({
                     status: 200,
@@ -207,7 +234,7 @@ test.describe("Homepage", () => {
         );
     });
 
-    test("Rejects responses that are not arrays", async ({ page }) => {
+    test("Rejects responses with an invalid catalog structure", async ({ page }) => {
         await mockFeaturedMovies(page, {
             movies: featuredMovies,
         });
@@ -223,12 +250,7 @@ test.describe("Homepage", () => {
 
     test("Handles malformed movie entries gracefully", async ({ page }) => {
         await mockFeaturedMovies(page, [
-            {
-                imdbId: "tt0780504",
-                title: "Drive",
-                year: "2011",
-                poster,
-            },
+            featuredMovies[0],
             null,
         ]);
 
@@ -244,10 +266,11 @@ test.describe("Homepage", () => {
     test("Displays movies without posters", async ({ page }) => {
         await mockFeaturedMovies(page, [
             {
+                id: 42,
                 imdbId: "tt0780504",
                 title: "Drive",
-                year: "2011",
-                poster: null,
+                releaseYear: 2011,
+                posterUrl: null,
             },
         ]);
 
@@ -280,7 +303,7 @@ test.describe("Homepage", () => {
 
         await drive.locator(".poster-wrapper").click();
 
-        await expect(page).toHaveURL(/\/details\/tt0780504$/);
+        await expect(page).toHaveURL(/\/details\/42$/);
 
         await page.goBack();
 
@@ -294,7 +317,7 @@ test.describe("Homepage", () => {
 
         await laLaLand.locator(".movie-card-footer").click();
 
-        await expect(page).toHaveURL(/\/details\/tt3783958$/);
+        await expect(page).toHaveURL(/\/details\/43$/);
     });
 
     test("Navigates to movie details from a mobile card without a poster", async ({ page }) => {
@@ -306,7 +329,7 @@ test.describe("Homepage", () => {
         await mockFeaturedMovies(page, [
             {
                 ...featuredMovies[1],
-                poster: null,
+                posterUrl: null,
             },
         ]);
 
@@ -322,16 +345,17 @@ test.describe("Homepage", () => {
             exact: true,
         }).click();
 
-        await expect(page).toHaveURL(/\/details\/tt3783958$/);
+        await expect(page).toHaveURL(/\/details\/43$/);
     });
 
-    test("Rejects featured movie data containing a missing IMDb ID", async ({ page }) => {
+    test("Rejects featured movie data containing a missing database ID", async ({ page }) => {
         await mockFeaturedMovies(page, [
             featuredMovies[0],
             {
+                imdbId: "tt9999999",
                 title: "Movie Without ID",
-                year: "2026",
-                poster,
+                releaseYear: 2026,
+                posterUrl: poster,
             },
         ]);
 

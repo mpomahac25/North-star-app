@@ -4,7 +4,12 @@ import { fileURLToPath } from "node:url";
 import path from "node:path";
 import pg from "pg";
 import { afterAll, beforeAll, describe, expect, test } from "@jest/globals";
-import { findMovieById, listMovies } from "../../dao/movies/movieReadDao.js";
+import {
+    findMovieById,
+    listMovies,
+    listNowShowingMovies,
+    listUpcomingScreeningsByMovieId,
+} from "../../dao/movies/movieReadDao.js";
 import { upsertMovie } from "../../dao/movies/movieWriteDao.js";
 
 const { Pool } = pg;
@@ -81,6 +86,121 @@ usePostgres("Movie DAOs with PostgreSQL", () => {
     }
     await adminPool.end();
   });
+
+  async function withScreeningFixtures(callback) {
+    const client = await databasePool.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        const movieResult = await client.query(`
+        INSERT INTO movies (title, duration_minutes, release_year)
+        VALUES
+            ('Screening Test A', 100, 2026),
+            ('Screening Test B', 110, 2026),
+            ('Screening Test Empty', 90, 2026)
+        RETURNING id, title
+        `);
+
+        const movieIds = Object.fromEntries(
+            movieResult.rows.map((row) => [row.title, row.id]),
+        );
+
+        const theatreResult = await client.query(`
+        INSERT INTO theatres (name, city, address)
+        VALUES
+            ('Rio Oulu', 'Oulu', 'Test Address 1'),
+            ('Rio Tampere', 'Tampere', 'Test Address 2')
+        RETURNING id, city
+        `);
+
+        const theatreIds = Object.fromEntries(
+            theatreResult.rows.map((row) => [row.city, row.id]),
+        );
+
+        const roomResult = await client.query(`
+        INSERT INTO rooms (theatre_id, name, capacity)
+        VALUES
+            ($1, 'Room 1', 80),
+            ($2, 'Room 2', 60)
+        RETURNING id, theatre_id`,
+            [theatreIds.Oulu, theatreIds.Tampere],
+        );
+
+        const ouluRoom = roomResult.rows.find(
+            (row) => row.theatre_id === theatreIds.Oulu,
+        );
+
+        const tampereRoom = roomResult.rows.find(
+            (row) => row.theatre_id === theatreIds.Tampere,
+        );
+
+        const now = Date.now();
+        const hour = 60 * 60 * 1000;
+
+        async function insertScreening(movieId, roomId, startTime) {
+            const endTime = new Date(startTime.getTime() + 2 * hour);
+
+            const result = await client.query(`
+            INSERT INTO screenings (movie_id, room_id, start_time, end_time, ticket_price)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING id`,
+                [movieId, roomId, startTime, endTime, 12.5],
+            );
+
+            return {
+                id: result.rows[0].id,
+                startTime,
+                endTime,
+            };
+        }
+
+        const movieId = movieIds["Screening Test A"];
+        const otherMovieId = movieIds["Screening Test B"];
+        const emptyMovieId = movieIds["Screening Test Empty"];
+
+        const past = await insertScreening(
+            movieId,
+            ouluRoom.id,
+            new Date(now - 4 * hour),
+        );
+
+        const late = await insertScreening(
+            movieId,
+            tampereRoom.id,
+            new Date(now + 6 * hour),
+        );
+
+        const early = await insertScreening(
+            movieId,
+            ouluRoom.id,
+            new Date(now + hour),
+        );
+
+        const other = await insertScreening(
+            otherMovieId,
+            tampereRoom.id,
+            new Date(now + 2 * hour),
+        );
+
+        await callback({
+            client,
+            movieId,
+            otherMovieId,
+            emptyMovieId,
+            past,
+            early,
+            late,
+            other,
+        });
+    } finally {
+        try {
+            await client.query("ROLLBACK");
+        } finally {
+            client.release();
+        }
+    }
+  }
 
   test("persists OMDb movie fields and reads them back", async () => {
     const savedMovie = await upsertMovie(
@@ -286,5 +406,95 @@ usePostgres("Movie DAOs with PostgreSQL", () => {
       databasePool,
     );
     expect(result.total).toBe(0);
+  });
+
+  test("returns only upcoming screenings for the requested movie in chronological order", async () => {
+    await withScreeningFixtures(async ({
+        client,
+        movieId,
+        emptyMovieId,
+        early,
+        late,
+    }) => {
+        const screenings = await listUpcomingScreeningsByMovieId(
+            movieId,
+            client,
+        );
+
+        expect(screenings).toEqual([
+            {
+                id: early.id,
+                startTime: early.startTime,
+                endTime: early.endTime,
+                roomName: "Room 1",
+                theatreName: "Rio Oulu",
+                city: "Oulu",
+            },
+            {
+                id: late.id,
+                startTime: late.startTime,
+                endTime: late.endTime,
+                roomName: "Room 2",
+                theatreName: "Rio Tampere",
+                city: "Tampere",
+            },
+        ]);
+
+        await expect(
+            listUpcomingScreeningsByMovieId(emptyMovieId, client),
+        ).resolves.toEqual([]);
+    });
+  });
+
+  test("groups now-showing movies with their upcoming screenings", async () => {
+    await withScreeningFixtures(async ({
+        client,
+        movieId,
+        otherMovieId,
+        early,
+        late,
+        other,
+    }) => {
+        const movies = await listNowShowingMovies(client);
+
+        expect(movies).toEqual([
+            {
+                id: movieId,
+                imdbId: null,
+                title: "Screening Test A",
+                releaseYear: 2026,
+                posterUrl: null,
+                screenings: [
+                    {
+                        id: early.id,
+                        startTime: early.startTime,
+                        theatreName: "Rio Oulu",
+                        city: "Oulu",
+                    },
+                    {
+                        id: late.id,
+                        startTime: late.startTime,
+                        theatreName: "Rio Tampere",
+                        city: "Tampere",
+                    },
+                ],
+            },
+            {
+                id: otherMovieId,
+                imdbId: null,
+                title: "Screening Test B",
+                releaseYear: 2026,
+                posterUrl: null,
+                screenings: [
+                    {
+                        id: other.id,
+                        startTime: other.startTime,
+                        theatreName: "Rio Tampere",
+                        city: "Tampere",
+                    },
+                ],
+            },
+        ]);
+    });
   });
 });

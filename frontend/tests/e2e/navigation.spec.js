@@ -2,27 +2,34 @@ import { test, expect } from "@playwright/test";
 
 const featuredMovies = [
     {
+        id: 42,
         imdbId: "tt0780504",
         title: "Drive",
-        year: "2011",
-        poster: null,
+        releaseYear: 2011,
+        posterUrl: null,
     },
     {
+        id: 43,
         imdbId: "tt3783958",
         title: "La La Land",
-        year: "2016",
-        poster: null,
+        releaseYear: 2016,
+        posterUrl: null,
     },
 ];
 
 test.beforeEach(async ({ page }) => {
     await page.route(
-        (url) => url.pathname === "/api/movies/coming-soon",
+        (url) => url.pathname === "/api/movies",
         (route) =>
             route.fulfill({
                 status: 200,
                 contentType: "application/json",
-                body: JSON.stringify(featuredMovies),
+                body: JSON.stringify({
+                    items: featuredMovies,
+                    total: featuredMovies.length,
+                    page: 1,
+                    limit: 10,
+                }),
             }),
     );
 });

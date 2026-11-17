@@ -40,14 +40,29 @@ function cleanValue(value, fallback = "Not available") {
 function formatReleaseDate(value) {
     if (!value) return "Not available";
 
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
+    if (!match) return "Not available";
+
+    const [, year, month, day] = match;
+
+    const months = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ];
+
     const date = new Date(`${value}T00:00:00Z`);
 
-    return date.toLocaleDateString("en-GB", {
-        day: "numeric",
-        month: "short",
-        year: "numeric",
-        timeZone: "UTC",
-    });
+    if (
+        Number.isNaN(date.getTime()) ||
+        date.getUTCFullYear() !== Number(year) ||
+        date.getUTCMonth() !== Number(month) - 1 ||
+        date.getUTCDate() !== Number(day)
+    ) {
+        return "Not available";
+    }
+
+    return `${day} ${months[Number(month) - 1]} ${year}`;
 }
 
 function formatScreeningTime(value) {
@@ -174,7 +189,7 @@ export default function DetailsPage() {
                 if (!controller.signal.aborted) {
                     setScreenings(data);
                 }
-            } catch (requestError) {
+            } catch {
                 if (!controller.signal.aborted) {
                     setScreeningsError("Could not load upcoming screenings.");
                 }

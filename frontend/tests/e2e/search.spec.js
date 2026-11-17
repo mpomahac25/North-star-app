@@ -1,37 +1,60 @@
 import { test, expect } from "@playwright/test";
 
 const searchResults = {
-    Search: [
+    items: [
         {
-            imdbID: "tt0780504",
-            Title: "Drive",
-            Year: "2011",
-            Poster: "N/A",
+            id: 42,
+            imdbId: "tt0780504",
+            title: "Drive",
+            releaseYear: 2011,
+            posterUrl: null,
         },
     ],
-    totalResults: "1",
-    Response: "True",
+    total: 1,
+    page: 1,
+    limit: 10,
 };
 
 test.beforeEach(async ({ page }) => {
     await page.route(
-        (url) => url.pathname === "/api/movies/coming-soon",
+        (url) =>
+            url.pathname === "/api/movies" &&
+            !url.searchParams.has("q"),
         (route) =>
             route.fulfill({
                 status: 200,
                 contentType: "application/json",
-                body: "[]",
+                body: JSON.stringify({
+                    items: [],
+                    total: 0,
+                    page: 1,
+                    limit: 8,
+                }),
             }),
     );
 
     await page.route(
-        (url) => url.pathname === "/api/movies/search",
-        (route) =>
-            route.fulfill({
+        (url) =>
+            url.pathname === "/api/movies" &&
+            url.searchParams.has("q"),
+        (route) => {
+            const query = new URL(route.request().url())
+                .searchParams.get("q");
+
+            const results = {
+                ...searchResults,
+                items: searchResults.items.map((movie) => ({
+                    ...movie,
+                    title: query === "drive" ? movie.title : query,
+                })),
+            };
+
+            return route.fulfill({
                 status: 200,
                 contentType: "application/json",
-                body: JSON.stringify(searchResults),
-            }),
+                body: JSON.stringify(results),
+            });
+        },
     );
 });
 
@@ -45,7 +68,9 @@ test.describe("Search Validation", () => {
         let searchRequests = 0;
 
         await page.route(
-            (url) => url.pathname === "/api/movies/search",
+            (url) =>
+                url.pathname === "/api/movies" &&
+                url.searchParams.has("q"),
             (route) => {
                 searchRequests++;
 
@@ -78,7 +103,9 @@ test.describe("Search Validation", () => {
         let searchRequests = 0;
 
         await page.route(
-            (url) => url.pathname === "/api/movies/search",
+            (url) =>
+                url.pathname === "/api/movies" &&
+                url.searchParams.has("q"),
             (route) => {
                 searchRequests++;
 
@@ -139,9 +166,12 @@ test.describe("Search Validation", () => {
     });
 
     test("Explore page correctly encodes API query parameters", async ({ page }) => {
-        const requestPromise = page.waitForRequest(
-            (request) => new URL(request.url()).pathname === "/api/movies/search",
-        );
+        const requestPromise = page.waitForRequest((request) => {
+            const url = new URL(request.url());
+
+            return url.pathname === "/api/movies" &&
+                url.searchParams.has("q");
+        });
 
         await page.goto("/explore?search=Fast%20%26%20Furious");
 
@@ -150,6 +180,7 @@ test.describe("Search Validation", () => {
 
         expect(url.searchParams.get("q")).toBe("Fast & Furious");
         expect(url.searchParams.get("page")).toBe("1");
+        expect(url.searchParams.get("limit")).toBe("10");
     });
 
     const specialCharacterCases = [
@@ -181,10 +212,12 @@ test.describe("Search Validation", () => {
 
                 const input = page.locator(inputSelector);
 
-                const requestPromise = page.waitForRequest(
-                    (request) =>
-                        new URL(request.url()).pathname === "/api/movies/search",
-                );
+                const requestPromise = page.waitForRequest((request) => {
+                    const url = new URL(request.url());
+
+                    return url.pathname === "/api/movies" &&
+                        url.searchParams.has("q");
+                });
 
                 await input.fill(searchTerm);
                 await input.press("Enter");
@@ -203,9 +236,13 @@ test.describe("Search Validation", () => {
 
                 expect(apiUrl.searchParams.get("q")).toBe(expectedSearch);
                 expect(apiUrl.searchParams.get("page")).toBe("1");
+                expect(apiUrl.searchParams.get("limit")).toBe("10");
 
                 await expect(
-                    page.getByRole("heading", { name: "Drive", exact: true }),
+                    page.getByRole("heading", {
+                        name: expectedSearch,
+                        exact: true,
+                    }),
                 ).toBeVisible();
             });
         }
