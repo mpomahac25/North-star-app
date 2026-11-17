@@ -54,11 +54,16 @@ jobs:
             base="$(git merge-base HEAD origin/main)"
           fi
 
-          if git diff --name-only "$base" HEAD -- \
+          if ! changed_files="$(git diff --name-only "$base" HEAD -- \
             db/ \
             backend/ \
             .github/workflows/ci.yml \
-            .github/scripts/generate-test-report.mjs | grep -q .; then
+            .github/scripts/generate-test-report.mjs)"; then
+             echo "::error::Failed to detect database-related changes."
+             exit 1
+          fi
+
+          if [ -n "$changed_files" ]; then
             echo "database=true" >> "$GITHUB_OUTPUT"
           else
             echo "database=false" >> "$GITHUB_OUTPUT"

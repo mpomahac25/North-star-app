@@ -168,8 +168,12 @@ describe.each(schemas)("V004 movie details migration in %s", (schema) => {
             `
             SELECT
                 m.title,
+                m.release_date::text AS release_date,
+                m.country,
+                m.awards,
                 m.imdb_rating,
                 m.imdb_votes,
+                m.box_office,
                 g.name AS genre,
                 p.name AS actor,
                 mc.credit_type,
@@ -189,14 +193,63 @@ describe.each(schemas)("V004 movie details migration in %s", (schema) => {
         expect(result.rows).toEqual([
             {
                 title: "Drive",
+                release_date: "2011-09-16",
+                country: "United States",
+                awards: "Nominated for 1 Oscar",
                 imdb_rating: "7.8",
                 imdb_votes: 775952,
+                box_office: "$35,061,555",
                 genre: "Action",
                 actor: "Ryan Gosling",
                 credit_type: "actor",
                 language: "English",
             },
         ]);
+    });
+
+    test.each([
+        ["movie_genres", "genres", "genre_id"],
+        ["movie_languages", "languages", "language_id"],
+        ["movie_credits", "people", "person_id"],
+    ])("rejects duplicate display positions in %s", async (
+        relationTable,
+        entityTable,
+        entityColumn,
+    ) => {
+        const movie = await client.query(
+            `INSERT INTO ${schema}.movies (title, duration_minutes)
+         VALUES ('Position Test Movie', 100)
+         RETURNING id`,
+        );
+
+        const entities = await client.query(
+            `INSERT INTO ${schema}.${entityTable} (name)
+         VALUES ('Position Test A'), ('Position Test B')
+         RETURNING id`,
+        );
+
+        const movieId = movie.rows[0].id;
+        const [first, second] = entities.rows;
+
+        const creditColumn =
+            relationTable === "movie_credits" ? ", credit_type" : "";
+
+        const creditValue =
+            relationTable === "movie_credits" ? ", 'actor'" : "";
+
+        const insertSql = `
+        INSERT INTO ${schema}.${relationTable}
+        (movie_id, ${entityColumn}, display_order${creditColumn})
+        VALUES ($1, $2, 1${creditValue})
+    `;
+
+        await client.query(insertSql, [movieId, first.id]);
+
+        await expect(
+            client.query(insertSql, [movieId, second.id]),
+        ).rejects.toMatchObject({
+            code: "23505",
+        });
     });
 
     test.each([
@@ -221,13 +274,10 @@ describe.each(schemas)("V004 movie details migration in %s", (schema) => {
         });
     });
 
-    test("preserves existing movie records", async () => {
-        if (schema !== "ci_upgrade") {
-            return;
-        }
-
-        const result = await client.query(
-            `
+    if (schema === "ci_upgrade") {
+        test("preserves existing movie records", async () => {
+            const result = await client.query(
+                `
             SELECT
                 id,
                 title,
@@ -238,17 +288,119 @@ describe.each(schemas)("V004 movie details migration in %s", (schema) => {
             FROM ${schema}.movies
             WHERE id = 900001
             `,
+            );
+
+            expect(result.rows).toEqual([
+                {
+                    id: 900001,
+                    title: "Migration Test Movie",
+                    release_year: 2024,
+                    release_date: null,
+                    imdb_rating: null,
+                    imdb_votes: null,
+                },
+            ]);
+        });
+    }
+
+    test("rejects unsupported movie credit types", async () => {
+        const movie = await client.query(
+            `INSERT INTO ${schema}.movies (title, duration_minutes)
+         VALUES ('Credit Test Movie', 100)
+         RETURNING id`,
         );
 
-        expect(result.rows).toEqual([
-            {
-                id: 900001,
-                title: "Migration Test Movie",
-                release_year: 2024,
-                release_date: null,
-                imdb_rating: null,
-                imdb_votes: null,
-            },
-        ]);
+        const person = await client.query(
+            `INSERT INTO ${schema}.people (name)
+         VALUES ('Credit Test Person')
+         RETURNING id`,
+        );
+
+        await expect(
+            client.query(
+                `INSERT INTO ${schema}.movie_credits
+             (movie_id, person_id, credit_type, display_order)
+             VALUES ($1, $2, 'producer', 1)`,
+                [movie.rows[0].id, person.rows[0].id],
+            ),
+        ).rejects.toMatchObject({
+            code: "23514",
+        });
+    });
+
+    test("deleting a movie removes its metadata relationships", async () => {
+        const movie = await client.query(
+            `INSERT INTO ${schema}.movies (title, duration_minutes)
+         VALUES ('Deletion Test Movie', 100)
+         RETURNING id`,
+        );
+
+        const genre = await client.query(
+            `INSERT INTO ${schema}.genres (name)
+         VALUES ('Deletion Test Genre')
+         RETURNING id`,
+        );
+
+        const person = await client.query(
+            `INSERT INTO ${schema}.people (name)
+         VALUES ('Deletion Test Person')
+         RETURNING id`,
+        );
+
+        const language = await client.query(
+            `INSERT INTO ${schema}.languages (name)
+         VALUES ('Deletion Test Language')
+         RETURNING id`,
+        );
+
+        const movieId = movie.rows[0].id;
+
+        await client.query(
+            `INSERT INTO ${schema}.movie_genres
+         (movie_id, genre_id, display_order)
+         VALUES ($1, $2, 1)`,
+            [movieId, genre.rows[0].id],
+        );
+
+        await client.query(
+            `INSERT INTO ${schema}.movie_credits
+         (movie_id, person_id, credit_type, display_order)
+         VALUES ($1, $2, 'actor', 1)`,
+            [movieId, person.rows[0].id],
+        );
+
+        await client.query(
+            `INSERT INTO ${schema}.movie_languages
+         (movie_id, language_id, display_order)
+         VALUES ($1, $2, 1)`,
+            [movieId, language.rows[0].id],
+        );
+
+        await client.query(
+            `DELETE FROM ${schema}.movies WHERE id = $1`,
+            [movieId],
+        );
+
+        const result = await client.query(
+            `SELECT
+            (SELECT COUNT(*)::INTEGER
+             FROM ${schema}.movie_genres
+             WHERE movie_id = $1) AS genres,
+
+            (SELECT COUNT(*)::INTEGER
+             FROM ${schema}.movie_credits
+             WHERE movie_id = $1) AS credits,
+
+            (SELECT COUNT(*)::INTEGER
+             FROM ${schema}.movie_languages
+             WHERE movie_id = $1) AS languages`,
+            [movieId],
+        );
+
+        expect(result.rows[0]).toEqual({
+            genres: 0,
+            credits: 0,
+            languages: 0,
+        });
     });
 });

@@ -89,8 +89,13 @@ export class MovieCatalogError extends Error {
 
 function normalizeOmdbMovie(omdbMovie) {
     const durationMatch = /^\s*(\d+)\s+min\b/i.exec(omdbMovie?.Runtime || "");
+    const durationMinutes = durationMatch ? Number(durationMatch[1]) : null;
 
-    if (!durationMatch) {
+    if (
+        !Number.isSafeInteger(durationMinutes) ||
+        durationMinutes <= 0 ||
+        durationMinutes > 2147483647
+    ) {
         throw new MovieCatalogError(
             "OMDb did not provide a runtime required by the movies table.",
             422,
@@ -104,7 +109,7 @@ function normalizeOmdbMovie(omdbMovie) {
         title: omdbMovie.Title,
         description:
             omdbMovie.Plot && omdbMovie.Plot !== "N/A" ? omdbMovie.Plot : null,
-        durationMinutes: Number(durationMatch[1]),
+        durationMinutes,
         releaseYear: yearMatch ? Number(yearMatch[1]) : null,
         ageRating:
             omdbMovie.Rated && omdbMovie.Rated !== "N/A" ? omdbMovie.Rated : null,
@@ -232,13 +237,29 @@ export async function importMovieByTitle(title, year) {
   }
 
   const omdbMovie = await response.json().catch(() => null);
+
   if (!response.ok) {
     const message =
-      typeof omdbMovie?.error === "string"
-        ? omdbMovie.error
-        : omdbMovie?.error?.message ||
-          `Movies service returned HTTP ${response.status}.`;
-    throw new MovieCatalogError(message, response.status === 404 ? 404 : 502);
+        typeof omdbMovie?.error === "string"
+            ? omdbMovie.error
+            : omdbMovie?.error?.message ||
+            `Movies service returned HTTP ${response.status}.`;
+
+    throw new MovieCatalogError(
+        message,
+        response.status === 404 ? 404 : 502,
+    );
+  }
+
+  if (
+    !omdbMovie ||
+    typeof omdbMovie !== "object" ||
+    Array.isArray(omdbMovie)
+  ) {
+    throw new MovieCatalogError(
+        "Movies service returned an invalid response.",
+        502,
+    );
   }
 
   return upsertMovie(normalizeOmdbMovie(omdbMovie));

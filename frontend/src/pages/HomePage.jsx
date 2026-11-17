@@ -32,7 +32,12 @@ export default function HomePage() {
                 }
 
                 const hasInvalidMovie = data.items.some(
-                    (m) => !m || typeof m !== "object" || !m.title || !Number.isSafeInteger(m.id),
+                    (m) =>
+                        !m ||
+                        typeof m !== "object" ||
+                        !m.title ||
+                        !Number.isSafeInteger(m.id) ||
+                        m.id <= 0,
                 );
 
                 if (hasInvalidMovie) {

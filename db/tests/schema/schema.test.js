@@ -58,7 +58,7 @@ describe('Database Schema', () => {
         await client.query(`CREATE SCHEMA "${schemaName}"`);
 
         await client.query(
-            `SET LOCAL search_path TO "${schemaName}", public`
+            `SET LOCAL search_path TO "${schemaName}"`
         );
 
         await client.query(schemaSql);
@@ -128,29 +128,25 @@ describe('Database Schema', () => {
     // Verify all tables have PKs
     test('All tables have primary keys', async () => {
         const result = await client.query(`
-            SELECT table_name
-            FROM information_schema.table_constraints
-            WHERE table_schema = $1
-              AND constraint_type = 'PRIMARY KEY'
-        `, [schemaName]);
+        SELECT t.table_name
+        FROM information_schema.tables AS t
+        WHERE t.table_schema = $1
+          AND t.table_type = 'BASE TABLE'
+          AND NOT EXISTS (
+              SELECT 1
+              FROM information_schema.table_constraints AS tc
+              WHERE tc.table_schema = t.table_schema
+                AND tc.table_name = t.table_name
+                AND tc.constraint_type = 'PRIMARY KEY'
+          )
+        ORDER BY t.table_name
+    `, [schemaName]);
 
-        const tablesWithPrimaryKeys = result.rows.map(
+        const tablesWithoutPrimaryKeys = result.rows.map(
             row => row.table_name
         );
 
-        // Check if any tables are missing primary keys
-        const missingPrimaryKeys = expectedTables.filter(
-            table => !tablesWithPrimaryKeys.includes(table)
-        );
-
-        if (missingPrimaryKeys.length > 0) {
-            throw new Error(
-                `Missing primary key constraints in table(s): ` +
-                `${missingPrimaryKeys.join(', ')}.\n` +
-                `Every database table should have a primary key. ` +
-                `Verify the table definitions in schema.sql.`
-            );
-        }
+        expect(tablesWithoutPrimaryKeys).toEqual([]);
     });
 
     // Verify data types for specific columns
@@ -244,6 +240,28 @@ describe('Database Schema', () => {
             'reservations.screening_id -> screenings.id',
             'reservations.status_id -> reservation_statuses.id'
         ].sort());
+    });
+
+    test('Seat reservations have a unique screening and seat constraint', async () => {
+        const result = await client.query(`
+        SELECT indexdef
+        FROM pg_indexes
+        WHERE schemaname = $1
+          AND tablename = 'reservations'
+          AND indexname = 'unique_active_seat'
+    `, [schemaName]);
+
+        expect(result.rows).toHaveLength(1);
+
+        const indexDefinition = result.rows[0].indexdef;
+
+        expect(indexDefinition).toMatch(
+            /\bCREATE UNIQUE INDEX\b/i
+        );
+
+        expect(indexDefinition).toMatch(
+            /\(screening_id,\s*seat_row,\s*seat_number\)/
+        );
     });
 
 });

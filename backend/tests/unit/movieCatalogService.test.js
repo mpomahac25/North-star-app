@@ -161,19 +161,24 @@ describe("Movie catalog service", () => {
     }));
   });
 
-  test("rejects movies without runtime before writing to the database", async () => {
+  test.each([
+    "N/A",
+    "0 min",
+    "-15 min",
+    "unknown",
+  ])("rejects invalid runtime '%s' before database persistence", async (runtime) => {
     fetch.mockResolvedValueOnce(jsonResponse({
-      Title: "Drive",
-      Year: "2011",
-      imdbID: "tt0780504",
-      Runtime: "N/A",
+        Title: "Drive",
+        Year: "2011",
+        imdbID: "tt0780504",
+        Runtime: runtime,
     }));
 
     await expect(importMovieByTitle("Drive", "2011")).rejects.toMatchObject({
-      name: "MovieCatalogError",
-      status: 422,
-      message: "OMDb did not provide a runtime required by the movies table.",
+        name: "MovieCatalogError",
+        status: 422,
     });
+
     expect(writeDaoMocks.upsertMovie).not.toHaveBeenCalled();
   });
 
@@ -213,25 +218,43 @@ describe("Movie catalog service", () => {
     expect(writeDaoMocks.upsertMovie).not.toHaveBeenCalled();
   });
 
-  test("passes 2026 catalog movies to the frontend response shape", async () => {
+  test("rejects malformed Movies service responses without persisting data", async () => {
+    fetch.mockResolvedValueOnce(
+        new Response("invalid-json", {
+            status: 200,
+            headers: {
+                "Content-Type": "application/json",
+            },
+        }),
+    );
+
+    await expect(importMovieByTitle("Drive")).rejects.toMatchObject({
+        name: "MovieCatalogError",
+        status: 502,
+    });
+
+    expect(writeDaoMocks.upsertMovie).not.toHaveBeenCalled();
+  });
+
+  test("transforms catalog movies into the Coming Soon response format", async () => {
     readDaoMocks.listMovies.mockResolvedValueOnce({
       total: 1,
       items: [{
         imdbId: "tt0780504",
         title: "Drive",
-        releaseYear: 2026,
+        releaseYear: 2027,
         posterUrl: "https://example.test/poster.jpg",
       }],
     });
 
-    await expect(getComingSoonMovies()).resolves.toEqual([{
+    await expect(getComingSoonMovies(2027)).resolves.toEqual([{
       imdbId: "tt0780504",
       title: "Drive",
-      year: 2026,
+      year: 2027,
       poster: "https://example.test/poster.jpg",
     }]);
     expect(readDaoMocks.listMovies).toHaveBeenCalledWith({
-      releaseYear: 2026,
+      releaseYear: 2027,
       limit: 1000,
       offset: 0,
     });

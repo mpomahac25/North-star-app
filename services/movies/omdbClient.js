@@ -49,6 +49,13 @@ async function requestOmdb(params) {
         throw new OmdbError("OMDb returned an invalid response.");
     }
 
+    if (data === null || typeof data !== "object" || Array.isArray(data)) {
+        if (!response.ok) {
+            throw new OmdbError(`OMDb returned HTTP ${response.status}.`);
+        }
+        throw new OmdbError("OMDb returned an invalid response.");
+    }
+
     if (!response.ok) {
         if (data.Error === "Invalid API key!" || data.Error === "No API key provided.") {
             throw new OmdbError(

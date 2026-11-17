@@ -161,6 +161,44 @@ describe("OMDb client", () => {
     });
   });
 
+  test.each([
+    ["null", null],
+    ["an array", []],
+    ["a string", "unexpected response"],
+  ])("rejects %s returned as OMDb JSON", async (scenario, payload) => {
+    fetch.mockResolvedValueOnce(jsonResponse(payload));
+
+    await expect(getMovieByTitle("Drive")).rejects.toMatchObject({
+        name: "OmdbError",
+        status: 502,
+        message: "OMDb returned an invalid response.",
+    });
+  });
+
+  test("handles upstream HTTP errors with null JSON responses", async () => {
+    fetch.mockResolvedValueOnce(jsonResponse(null, 503));
+
+    await expect(getMovieByTitle("Drive")).rejects.toMatchObject({
+        name: "OmdbError",
+        status: 502,
+        message: "OMDb returned HTTP 503.",
+    });
+  });
+
+  test.each([
+    ["null", null],
+    ["an array", []],
+    ["a string", "unexpected response"],
+  ])("rejects %s returned as OMDb JSON", async (scenario, payload) => {
+    fetch.mockResolvedValueOnce(jsonResponse(payload));
+
+    await expect(getMovieByTitle("Drive")).rejects.toMatchObject({
+        name: "OmdbError",
+        status: 502,
+        message: "OMDb returned an invalid response.",
+    });
+  });
+
   test("surfaces OMDb HTTP errors as gateway errors", async () => {
     fetch.mockResolvedValueOnce(
       jsonResponse({ Error: "Service unavailable" }, 500),
@@ -169,6 +207,48 @@ describe("OMDb client", () => {
     await expect(getMovieByTitle("Drive")).rejects.toMatchObject({
       status: 502,
       message: "OMDb returned HTTP 500: Service unavailable.",
+    });
+  });
+
+  test("handles upstream HTTP errors with null JSON responses", async () => {
+    fetch.mockResolvedValueOnce(jsonResponse(null, 503));
+
+    await expect(getMovieByTitle("Drive")).rejects.toMatchObject({
+        name: "OmdbError",
+        status: 502,
+        message: "OMDb returned HTTP 503.",
+    });
+  });
+
+  test("returns 404 when an IMDb ID does not exist", async () => {
+    fetch.mockResolvedValueOnce(
+        jsonResponse({
+            Response: "False",
+            Error: "Movie not found!",
+        }),
+    );
+
+    await expect(getMovieById("tt9999999")).rejects.toMatchObject({
+        name: "OmdbError",
+        status: 404,
+        message: "Movie not found.",
+    });
+  });
+
+  test("does not treat OMDb service errors as empty search results", async () => {
+    fetch.mockResolvedValueOnce(
+        jsonResponse({
+            Response: "False",
+            Error: "Request limit reached!",
+        }),
+    );
+
+    await expect(
+        searchMovies({ query: "Drive", page: 1 }),
+    ).rejects.toMatchObject({
+        name: "OmdbError",
+        status: 502,
+        message: "Request limit reached!",
     });
   });
 });

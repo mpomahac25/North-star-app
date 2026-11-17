@@ -6,6 +6,7 @@ import pg from "pg";
 import { afterAll, beforeAll, describe, expect, test } from "@jest/globals";
 import {
     findMovieById,
+    findMovieByImdbId,
     listMovies,
     listNowShowingMovies,
     listUpcomingScreeningsByMovieId,
@@ -38,7 +39,7 @@ const databasePool = new Pool({
 let schemaCreated = false;
 
 usePostgres("Movie DAOs with PostgreSQL", () => {
-    beforeAll(async () => {
+  beforeAll(async () => {
         await adminPool.query(`CREATE SCHEMA "${schemaName}"`);
         schemaCreated = true;
 
@@ -63,11 +64,19 @@ usePostgres("Movie DAOs with PostgreSQL", () => {
     });
 
   afterAll(async () => {
-    await databasePool.end();
-    if (schemaCreated) {
-      await adminPool.query(`DROP SCHEMA "${schemaName}" CASCADE`);
+    try {
+        await databasePool.end();
+    } finally {
+        try {
+            if (schemaCreated) {
+                await adminPool.query(
+                    `DROP SCHEMA "${schemaName}" CASCADE`,
+                );
+            }
+        } finally {
+            await adminPool.end();
+        }
     }
-    await adminPool.end();
   });
 
   async function withScreeningFixtures(callback) {
@@ -104,8 +113,8 @@ usePostgres("Movie DAOs with PostgreSQL", () => {
         const roomResult = await client.query(`
         INSERT INTO rooms (theatre_id, name, capacity)
         VALUES
-            ($1, 'Room 1', 80),
-            ($2, 'Room 2', 60)
+            ($1, 'Room 1', 100),
+            ($2, 'Room 2', 200)
         RETURNING id, theatre_id`,
             [theatreIds.Oulu, theatreIds.Tampere],
         );
@@ -263,6 +272,23 @@ usePostgres("Movie DAOs with PostgreSQL", () => {
       title: "Drive",
     });
 
+    await expect(
+        findMovieByImdbId("tt0780504", databasePool),
+    ).resolves.toMatchObject({
+        id: savedMovie.id,
+        imdbId: "tt0780504",
+        title: "Drive",
+        durationMinutes: 100,
+        releaseYear: 2011,
+        genres: ["Action", "Drama"],
+        directors: ["Nicolas Winding Refn"],
+        actors: ["Ryan Gosling", "Carey Mulligan"],
+    });
+
+    await expect(
+        findMovieByImdbId("tt9999999", databasePool),
+    ).resolves.toBeNull();
+
     const storedGenres = await databasePool.query(
         `SELECT g.name
             FROM movie_genres mg
@@ -385,27 +411,103 @@ usePostgres("Movie DAOs with PostgreSQL", () => {
     });
   });
 
-  test("rolls back a failed write without leaving a partial movie row", async () => {
+  test("filters and paginates movies using PostgreSQL", async () => {
+    const client = await databasePool.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        await client.query(`
+        INSERT INTO movies (title, duration_minutes, release_year)
+        VALUES
+            ('Catalog Fixture Alpha', 90, 2099),
+            ('Catalog Fixture Beta', 100, 2099),
+            ('Catalog Fixture Gamma', 110, 2099)
+    `);
+
+        const result = await listMovies(
+            {
+                query: "catalog fixture",
+                releaseYear: 2099,
+                limit: 1,
+                offset: 1,
+            },
+            client,
+        );
+
+        expect(result.total).toBe(3);
+        expect(result.items).toHaveLength(1);
+
+        expect(result.items[0]).toMatchObject({
+            title: "Catalog Fixture Beta",
+            releaseYear: 2099,
+            durationMinutes: 100,
+        });
+
+        const emptyResult = await listMovies(
+            {
+                query: "Nonexistent Catalog Movie",
+                releaseYear: 2099,
+                limit: 10,
+                offset: 0,
+            },
+            client,
+        );
+
+        expect(emptyResult).toEqual({
+            items: [],
+            total: 0,
+        });
+    } finally {
+        try {
+            await client.query("ROLLBACK");
+        } finally {
+            client.release();
+        }
+    }
+  });
+
+  test("rolls back all database changes when a movie write fails", async () => {
     await expect(
-      upsertMovie(
-        {
-          imdbId: "tt0000001",
-          title: "Invalid Runtime",
-          durationMinutes: 0,
-          releaseYear: 2026,
-          ageRating: "PG",
-          posterUrl: null,
-          description: null,
-        },
-        databasePool,
-      ),
-    ).rejects.toThrow();
+        upsertMovie(
+            {
+                imdbId: "tt0000001",
+                title: "Invalid Runtime",
+                durationMinutes: 0,
+                releaseYear: 2026,
+                ageRating: "ROLLBACK_TEST",
+                posterUrl: null,
+                description: null,
+            },
+            databasePool,
+        ),
+    ).rejects.toMatchObject({
+        code: "23514",
+    });
+
+    await expect(
+        findMovieByImdbId("tt0000001", databasePool),
+    ).resolves.toBeNull();
 
     const result = await listMovies(
-      { query: "Invalid Runtime", limit: 20, offset: 0 },
-      databasePool,
+        {
+            query: "Invalid Runtime",
+            limit: 20,
+            offset: 0,
+        },
+        databasePool,
     );
+
     expect(result.total).toBe(0);
+
+    const ageRatingResult = await databasePool.query(
+        `SELECT COUNT(*)::INTEGER AS total
+        FROM age_ratings
+        WHERE rating = $1`,
+        ["ROLLBACK_TEST"],
+    );
+
+    expect(ageRatingResult.rows[0].total).toBe(0);
   });
 
   test("returns only upcoming screenings for the requested movie in chronological order", async () => {

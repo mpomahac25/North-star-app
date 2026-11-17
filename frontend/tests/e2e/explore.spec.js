@@ -351,7 +351,7 @@ test.describe("Explore Page", () => {
         );
     });
 
-    test("Rejects an invalid Search property", async ({ page }) => {
+    test("Rejects an invalid items property", async ({ page }) => {
         await mockSearch(page, {
             items: {
                 id: 42,
@@ -371,7 +371,7 @@ test.describe("Explore Page", () => {
         await expect(page.locator(".explore-card")).toHaveCount(0);
     });
 
-    test("Rejects successful responses missing the Search property", async ({ page }) => {
+    test("Rejects successful responses missing the items property", async ({ page }) => {
         await mockSearch(page, {
             total: 2,
             page: 1,

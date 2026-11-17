@@ -5,7 +5,7 @@ import path from "node:path";
 import pg from "pg";
 import express from "express";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, jest, test } from "@jest/globals";
+import { afterAll, beforeAll, beforeEach, describe, expect, jest, test } from "@jest/globals";
 
 const databaseUrl = process.env.DB_TEST_URL;
 
@@ -38,12 +38,20 @@ let app;
 let mockMoviesServer;
 let schemaCreated = false;
 let serviceCalls = [];
+let moviesServiceAvailable = true;
 
 const originalMoviesApiUrl = process.env.MOVIES_API_URL;
 
 const moviesApp = express();
 moviesApp.get("/api/movies/title", (req, res) => {
     serviceCalls.push({ title: req.query.title, year: req.query.year });
+
+    if (!moviesServiceAvailable) {
+        return res.status(503).json({
+            error: "Movies service unavailable.",
+        });
+    }
+
     return res.json({
         Title: "Drive",
         Year: "2011",
@@ -67,6 +75,11 @@ moviesApp.get("/api/movies/title", (req, res) => {
 });
 
 describe("OMDb import to PostgreSQL API flow", () => {
+    beforeEach(() => {
+        serviceCalls = [];
+        moviesServiceAvailable = true;
+    });
+
     beforeAll(async () => {
         serviceCalls = [];
 
@@ -176,6 +189,7 @@ describe("OMDb import to PostgreSQL API flow", () => {
         expect(Number(imported.body.imdbRating)).toBe(7.8);
         expect(Number.isInteger(imported.body.id)).toBe(true);
 
+        moviesServiceAvailable = false;
         const catalog = await request(app).get("/api/movies?year=2011");
         expect(catalog.status).toBe(200);
         expect(catalog.body.items).toContainEqual(
@@ -226,10 +240,6 @@ describe("OMDb import to PostgreSQL API flow", () => {
             title: "Drive",
         });
 
-        expect(serviceCalls).toEqual([
-            { title: "Drive", year: "2011" },
-        ]);
-
         const comingSoon = await request(app)
             .get("/api/movies/coming-soon")
             .query({ year: 2011 });
@@ -240,5 +250,40 @@ describe("OMDb import to PostgreSQL API flow", () => {
             year: 2011,
             poster: "https://example.test/drive.jpg",
         });
+
+        expect(serviceCalls).toEqual([
+            { title: "Drive", year: "2011" },
+        ]);
+    });
+
+    test("rejects imports when the Movies service is unavailable without persisting data", async () => {
+        moviesServiceAvailable = false;
+
+        const response = await request(app)
+            .post("/api/movies/import")
+            .send({
+                title: "Offline Movie",
+                year: "2030",
+            });
+
+        expect(response.status).toBe(502);
+
+        expect(response.body.error).toEqual({
+            code: "MOVIE_IMPORT_FAILED",
+            message: "Movies service unavailable.",
+        });
+
+        expect(serviceCalls).toEqual([
+            { title: "Offline Movie", year: "2030" },
+        ]);
+
+        const storedMovie = await databasePool.query(
+            `SELECT id
+         FROM movies
+         WHERE title = $1`,
+            ["Offline Movie"],
+        );
+
+        expect(storedMovie.rows).toHaveLength(0);
     });
 });

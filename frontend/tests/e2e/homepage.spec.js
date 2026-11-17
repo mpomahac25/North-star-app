@@ -150,15 +150,17 @@ test.describe("Homepage", () => {
             },
         );
 
-        await page.goto("/");
+        try {
+            await page.goto("/");
 
-        await expect(
-            page.getByRole("status").filter({ hasText: "Loading movies" }),
-        ).toBeVisible();
+            await expect(
+                page.getByRole("status").filter({ hasText: "Loading movies" }),
+            ).toBeVisible();
 
-        await expect(page.locator(".movie-card-coming")).toHaveCount(0);
-
-        releaseResponse();
+            await expect(page.locator(".movie-card-coming")).toHaveCount(0);
+        } finally {
+            releaseResponse();
+        }
 
         await expect(page.locator(".movie-card-coming")).toHaveCount(2);
 
@@ -348,25 +350,37 @@ test.describe("Homepage", () => {
         await expect(page).toHaveURL(/\/details\/43$/);
     });
 
-    test("Rejects featured movie data containing a missing database ID", async ({ page }) => {
-        await mockFeaturedMovies(page, [
-            featuredMovies[0],
-            {
-                imdbId: "tt9999999",
-                title: "Movie Without ID",
-                releaseYear: 2026,
-                posterUrl: poster,
-            },
-        ]);
+    for (const [scenario, id] of [
+        ["missing", undefined],
+        ["zero", 0],
+        ["negative", -1],
+        ["fractional", 1.5],
+    ]) {
+        test(`Rejects featured movie data with a ${scenario} database ID`, async ({ page }) => {
+            const invalidMovie = {
+                ...featuredMovies[1],
+            };
 
-        await page.goto("/");
+            if (id === undefined) {
+                delete invalidMovie.id;
+            } else {
+                invalidMovie.id = id;
+            }
 
-        await expect(page.getByRole("alert")).toHaveText(
-            "Could not load movies. Please try again later.",
-        );
+            await mockFeaturedMovies(page, [
+                featuredMovies[0],
+                invalidMovie,
+            ]);
 
-        await expect(page.locator(".movie-card-coming")).toHaveCount(0);
-    });
+            await page.goto("/");
+
+            await expect(page.getByRole("alert")).toHaveText(
+                "Could not load movies. Please try again later.",
+            );
+
+            await expect(page.locator(".movie-card-coming")).toHaveCount(0);
+        });
+    }
 
 
 });

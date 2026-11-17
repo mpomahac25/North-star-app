@@ -40,13 +40,13 @@ describe("Movie catalog API routes", () => {
     movieCatalogMocks.getNowShowingMovies.mockReset();
   });
 
-  test("imports a movie by title and year without an authorization token", async () => {
+  test("imports a movie using a title and year and returns the saved movie", async () => {
     const savedMovie = { id: 1, imdbId: "tt0780504", title: "Drive" };
     movieCatalogMocks.importMovieByTitle.mockResolvedValueOnce(savedMovie);
 
     const response = await request(app)
       .post("/api/movies/import")
-      .send({ title: "Drive", year: "2011" });
+      .send({ title: "  Drive  ", year: "2011" });
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual(savedMovie);
@@ -56,18 +56,20 @@ describe("Movie catalog API routes", () => {
     );
   });
 
-  test("rejects invalid import inputs without calling the catalog service", async () => {
-    const missingTitle = await request(app)
-      .post("/api/movies/import")
-      .send({ year: "2011" });
-    const invalidYear = await request(app)
-      .post("/api/movies/import")
-      .send({ title: "Drive", year: "20xx" });
+  test.each([
+    ["missing title", { year: "2011" }, "INVALID_TITLE"],
+    ["empty title", { title: "" }, "INVALID_TITLE"],
+    ["whitespace-only title", { title: "   " }, "INVALID_TITLE"],
+    ["title exceeding 100 characters", { title: "A".repeat(101) }, "INVALID_TITLE"],
+    ["invalid year", { title: "Drive", year: "20xx" }, "INVALID_RELEASE_YEAR"],
+    ["year with too few digits", { title: "Drive", year: "201" }, "INVALID_RELEASE_YEAR"],
+  ])("rejects %s without importing a movie", async (scenario, payload, errorCode) => {
+    const response = await request(app)
+        .post("/api/movies/import")
+        .send(payload);
 
-    expect(missingTitle.status).toBe(400);
-    expect(missingTitle.body.error.code).toBe("INVALID_TITLE");
-    expect(invalidYear.status).toBe(400);
-    expect(invalidYear.body.error.code).toBe("INVALID_RELEASE_YEAR");
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe(errorCode);
     expect(movieCatalogMocks.importMovieByTitle).not.toHaveBeenCalled();
   });
 
@@ -112,6 +114,40 @@ describe("Movie catalog API routes", () => {
     });
   });
 
+  test.each([
+    ["zero page", { page: 0 }, "INVALID_PAGE"],
+    ["negative page", { page: -1 }, "INVALID_PAGE"],
+    ["fractional page", { page: 1.5 }, "INVALID_PAGE"],
+    ["zero limit", { limit: 0 }, "INVALID_LIMIT"],
+    ["limit above maximum", { limit: 101 }, "INVALID_LIMIT"],
+    ["year below minimum", { year: 1887 }, "INVALID_RELEASE_YEAR"],
+    ["year above maximum", { year: 2101 }, "INVALID_RELEASE_YEAR"],
+    ["non-numeric year", { year: "unknown" }, "INVALID_RELEASE_YEAR"],
+    ["query exceeding 100 characters", { q: "A".repeat(101) }, "INVALID_QUERY"],
+  ])("rejects %s in movie catalog requests", async (scenario, query, errorCode) => {
+    const response = await request(app)
+        .get("/api/movies")
+        .query(query);
+
+    expect(response.status).toBe(400);
+    expect(response.body.error.code).toBe(errorCode);
+    expect(movieCatalogMocks.getMovieList).not.toHaveBeenCalled();
+  });
+
+  test("returns 500 when the movie catalog cannot be retrieved", async () => {
+    movieCatalogMocks.getMovieList.mockRejectedValueOnce(
+        new Error("Database unavailable"),
+    );
+
+    const response = await request(app).get("/api/movies");
+
+    expect(response.status).toBe(500);
+    expect(response.body.error).toEqual({
+        code: "MOVIE_CATALOG_READ_FAILED",
+        message: "Could not load movies from the database.",
+    });
+  });
+
   test("returns a movie from PostgreSQL using its numerical ID", async () => {
     const movie = {
         id: 42,
@@ -142,6 +178,20 @@ describe("Movie catalog API routes", () => {
     expect(movieCatalogMocks.getMovie).toHaveBeenCalledWith(999);
   });
 
+  test("returns 500 when movie details cannot be retrieved from the database", async () => {
+    movieCatalogMocks.getMovie.mockRejectedValueOnce(
+        new Error("Database unavailable"),
+    );
+
+    const response = await request(app).get("/api/movies/42");
+
+    expect(response.status).toBe(500);
+    expect(response.body.error).toEqual({
+        code: "MOVIE_CATALOG_READ_FAILED",
+        message: "Could not load movie from the database.",
+    });
+  });
+
   test("serves Coming Soon movies for the requested year", async () => {
     const movies = [
       {
@@ -160,6 +210,107 @@ describe("Movie catalog API routes", () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual(movies);
     expect(movieCatalogMocks.getComingSoonMovies).toHaveBeenCalledWith(2011);
+  });
+
+  test("returns now-showing movies with their upcoming screenings", async () => {
+    const movies = [
+        {
+            id: 42,
+            imdbId: "tt0780504",
+            title: "Drive",
+            releaseYear: 2011,
+            posterUrl: "https://example.test/drive.jpg",
+            screenings: [
+                {
+                    id: 1,
+                    startTime: "2026-12-01T18:00:00.000Z",
+                    theatreName: "Rio Oulu",
+                    city: "Oulu",
+                },
+                {
+                    id: 2,
+                    startTime: "2026-12-02T19:00:00.000Z",
+                    theatreName: "Rio Tampere",
+                    city: "Tampere",
+                },
+            ],
+        },
+    ];
+
+    movieCatalogMocks.getNowShowingMovies.mockResolvedValueOnce(movies);
+
+    const response = await request(app).get("/api/movies/now-showing");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(movies);
+    expect(movieCatalogMocks.getNowShowingMovies).toHaveBeenCalledTimes(1);
+  });
+
+  test("returns 500 when now-showing movies cannot be retrieved", async () => {
+    movieCatalogMocks.getNowShowingMovies.mockRejectedValueOnce(
+        new Error("Database unavailable"),
+    );
+
+    const response = await request(app).get("/api/movies/now-showing");
+
+    expect(response.status).toBe(500);
+    expect(response.body.error).toEqual({
+        code: "MOVIE_CATALOG_READ_FAILED",
+        message: "Could not load currently showing movies.",
+    });
+  });
+
+  test("returns an empty array when a movie has no upcoming screenings", async () => {
+    movieCatalogMocks.getMovie.mockResolvedValueOnce({
+        id: 42,
+        title: "Drive",
+    });
+
+    movieCatalogMocks.getUpcomingMovieScreenings.mockResolvedValueOnce([]);
+
+    const response = await request(app).get("/api/movies/42/screenings");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual([]);
+
+    expect(movieCatalogMocks.getUpcomingMovieScreenings)
+        .toHaveBeenCalledWith(42);
+  });
+
+  test("returns 500 when upcoming screenings cannot be retrieved", async () => {
+    movieCatalogMocks.getMovie.mockResolvedValueOnce({
+        id: 42,
+        title: "Drive",
+    });
+
+    movieCatalogMocks.getUpcomingMovieScreenings.mockRejectedValueOnce(
+        new Error("Database unavailable"),
+    );
+
+    const response = await request(app).get("/api/movies/42/screenings");
+
+    expect(response.status).toBe(500);
+    expect(response.body.error).toEqual({
+        code: "MOVIE_SCREENINGS_READ_FAILED",
+        message: "Could not load movie screenings.",
+    });
+  });
+
+  test("returns 200 when the database is ready", async () => {
+    poolMock.query.mockResolvedValueOnce({
+        rows: [{ "?column?": 1 }],
+    });
+
+    const response = await request(app).get("/api/ready");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+        status: "ready",
+        service: "backend",
+        database: "ready",
+    });
+
+    expect(poolMock.query).toHaveBeenCalledWith("SELECT 1");
   });
 
   test("returns 503 when the PostgreSQL readiness query fails", async () => {

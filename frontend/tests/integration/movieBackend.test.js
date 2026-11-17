@@ -190,13 +190,16 @@ describe("Frontend and Backend Movies Integration", () => {
         expect(response.body.error.message).toBe("Movie was not found.");
     });
 
-    test("Retrieves a cached movie using its IMDb ID", async () => {
+    test("Retrieves a cached movie without contacting the Movies service", async () => {
         const movie = {
             id: 42,
             imdbId: "tt0780504",
             title: "Drive",
             releaseYear: 2011,
         };
+
+        const upstreamFetch = jest.spyOn(globalThis, "fetch")
+            .mockRejectedValue(new Error("Movies service unavailable"));
 
         movieReadDao.findMovieByImdbId.mockResolvedValueOnce(movie);
 
@@ -208,6 +211,8 @@ describe("Frontend and Backend Movies Integration", () => {
 
         expect(movieReadDao.findMovieByImdbId)
             .toHaveBeenCalledWith("tt0780504");
+
+        expect(upstreamFetch).not.toHaveBeenCalled();
     });
 
     test("Retrieves upcoming movie screenings through both applications", async () => {
