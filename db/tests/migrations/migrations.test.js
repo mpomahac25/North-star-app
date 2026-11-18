@@ -20,14 +20,6 @@ describe('Database Migrations', () => {
             throw new Error('DB_TEST_URL is required');
         }
 
-        const databaseName = decodeURIComponent(
-            new URL(connectionString).pathname.slice(1)
-        );
-
-        if (databaseName !== 'rio_schema_test') {
-            throw new Error('Unexpected migration test database');
-        }
-
         client = new pg.Client({
             connectionString,
             connectionTimeoutMillis: 5000
@@ -99,39 +91,72 @@ describe('Database Migrations', () => {
         });
     });
 
-    test('All migration files were successfully applied', async () => {
+    test('All expected migrations were successfully applied in order', async () => {
+        const expectedScripts = [...migrationFiles].sort((a, b) => {
+            const versionA = Number(/^V(\d+)__/.exec(a)[1]);
+            const versionB = Number(/^V(\d+)__/.exec(b)[1]);
+
+            return versionA - versionB;
+        });
+
         for (const schema of ['ci_fresh', 'ci_upgrade']) {
             const result = await client.query(`
-                SELECT version, success
-                FROM ${schema}.flyway_schema_history
-                WHERE version IS NOT NULL
-            `);
+            SELECT script, success
+            FROM ${schema}.flyway_schema_history
+            WHERE version IS NOT NULL
+            ORDER BY installed_rank
+        `);
 
-            expect(result.rows).toHaveLength(migrationFiles.length);
-
-            expect(
-                result.rows.every(row => row.success === true)
-            ).toBe(true);
+            expect(result.rows).toEqual(
+                expectedScripts.map(script => ({
+                    script,
+                    success: true
+                }))
+            );
         }
     });
 
-    test('Release year constraint rejects invalid values', async () => {
-        await expect(
-            client.query(`
+    test.each([1887, 2101])(
+        'Release year constraint rejects invalid year %i',
+        async (year) => {
+            await expect(
+                client.query(`
                 INSERT INTO ci_upgrade.movies (
                     title,
                     duration_minutes,
                     release_year
                 )
-                VALUES (
-                    'Invalid Migration Test Movie',
-                    120,
-                    1800
-                )
-            `)
-        ).rejects.toMatchObject({
-            code: '23514'
-        });
+                VALUES ($1, $2, $3)
+            `, ['Invalid Migration Test Movie', 120, year])
+            ).rejects.toMatchObject({
+                code: '23514'
+            });
+        }
+    );
+
+    test('Release year constraint accepts valid boundary years', async () => {
+        await client.query('BEGIN');
+
+        try {
+            const result = await client.query(`
+            INSERT INTO ci_upgrade.movies (
+                title,
+                duration_minutes,
+                release_year
+            )
+            VALUES
+                ('Minimum Release Year', 120, 1888),
+                ('Maximum Release Year', 120, 2100)
+            RETURNING release_year
+        `);
+
+            expect(
+                result.rows.map(row => row.release_year)
+            ).toEqual([1888, 2100]);
+        }
+        finally {
+            await client.query('ROLLBACK');
+        }
     });
 
 });

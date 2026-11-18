@@ -13,6 +13,12 @@ describe("Frontend Movies API Proxy", () => {
     beforeAll(async () => {
         const backend = express();
 
+        backend.post("/api/test-payload", express.json(), (req, res) => {
+            return res.json({
+                received: req.body,
+            });
+        });
+
         nonApiRequests = 0;
 
         backend.get("/api/movies/search", (req, res) => {
@@ -128,6 +134,26 @@ describe("Frontend Movies API Proxy", () => {
         });
     });
 
+    test("Forwards POST requests and JSON bodies without modification", async () => {
+        const payload = {
+            title: "Drive",
+            year: "2011",
+            metadata: {
+                source: "OMDb",
+            },
+        };
+
+        const response = await request(app)
+            .post("/api/test-payload")
+            .send(payload);
+
+        expect(response.status).toBe(200);
+
+        expect(response.body).toEqual({
+            received: payload,
+        });
+    });
+
     test("Forwards featured movies requests", async () => {
         const response = await request(app)
             .get("/api/movies/coming-soon");
@@ -149,6 +175,10 @@ describe("Frontend Movies API Proxy", () => {
             .get("/api/movies/search");
 
         assertApiError(response, 400, "INVALID_SEARCH_QUERY");
+
+        expect(response.body.error.message).toBe(
+            "A search query is required.",
+        );
     });
 
     test("Preserves HTTP 404 resource errors", async () => {
@@ -159,6 +189,10 @@ describe("Frontend Movies API Proxy", () => {
             });
 
         assertApiError(response, 404, "MOVIE_NOT_FOUND");
+
+        expect(response.body.error.message).toBe(
+            "The requested movie does not exist.",
+        );
     });
 
     test("Preserves HTTP 503 service errors", async () => {
@@ -169,6 +203,10 @@ describe("Frontend Movies API Proxy", () => {
             });
 
         assertApiError(response, 503, "MOVIES_SERVICE_UNAVAILABLE");
+
+        expect(response.body.error.message).toBe(
+            "The movies service is unavailable.",
+        );
     });
 
     test("Does not forward requests outside the API", async () => {
@@ -210,7 +248,11 @@ describe("Frontend Movies API Proxy", () => {
             const response = await request(unavailableApp)
                 .get("/api/movies/search?q=drive");
 
-            assertApiError(response, 502);
+            assertApiError(response, 502, "BACKEND_UNAVAILABLE");
+
+            expect(response.body.error.message).toBe(
+                "The backend service is unavailable.",
+            );
         } finally {
             consoleSpy.mockRestore();
         }

@@ -7,7 +7,6 @@ x-db-environment: &db-environment
   DB_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env file}
 
 services:
-
   # Postgres DB
   postgres:
     image: postgres:17-alpine
@@ -22,7 +21,6 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./db/migrations/V003__google_auth.sql:/docker-entrypoint-initdb.d/03-google-auth.sql:ro
 
     # Expose PostgreSQL only to the local host
     ports:
@@ -30,12 +28,37 @@ services:
 
     # Simple periodic health check
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      test:
+        ["CMD-SHELL", 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
       interval: 10s
       timeout: 5s
       retries: 5
       start_period: 20s
 
+  # Flyway
+  flyway:
+    image: flyway/flyway:13.12.1
+    profiles:
+      - tools
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    volumes:
+      - ./db/migrations:/flyway/sql:ro
+
+    environment:
+      FLYWAY_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB:-rio_theaters}
+      FLYWAY_USER: ${POSTGRES_USER:-rio}
+      FLYWAY_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env file}
+      FLYWAY_LOCATIONS: filesystem:/flyway/sql
+      FLYWAY_DEFAULT_SCHEMA: public
+      FLYWAY_SCHEMAS: public
+      FLYWAY_BASELINE_ON_MIGRATE: "false"
+      FLYWAY_CLEAN_DISABLED: "true"
+      FLYWAY_OUT_OF_ORDER: "false"
+      FLYWAY_VALIDATE_MIGRATION_NAMING: "true"
 
   # Frontend configuration
   frontend:
@@ -55,7 +78,6 @@ services:
     depends_on:
       backend:
         condition: service_healthy
-
 
   # Main backend API
   backend:
@@ -79,7 +101,6 @@ services:
       movies:
         condition: service_healthy
 
-
   # Booking microservice
   booking:
     image: docker.io/${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}/rio-theaters-booking:${BOOKING_VERSION:?BOOKING_VERSION is required}
@@ -98,7 +119,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-
 
   # Login microservice
   login:
@@ -124,7 +144,6 @@ services:
       postgres:
         condition: service_healthy
 
-
   # Payment microservice
   payment:
     image: docker.io/${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}/rio-theaters-payment:${PAYMENT_VERSION:?PAYMENT_VERSION is required}
@@ -143,7 +162,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-
 
   # Movies microservice
   movies:
@@ -164,7 +182,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-
 
 # Persistent database storage
 volumes:

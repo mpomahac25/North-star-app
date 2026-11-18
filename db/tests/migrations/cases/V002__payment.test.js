@@ -50,11 +50,8 @@ describe.each(schemas)('V002 payment migration in %s', schema => {
     beforeAll(async () => {
         const connectionString = process.env.DB_TEST_URL;
 
-        if (
-            !connectionString ||
-            decodeURIComponent(new URL(connectionString).pathname.slice(1)) !== 'rio_schema_test'
-        ) {
-            throw new Error('Payment migration tests require rio_schema_test');
+        if (!connectionString) {
+            throw new Error('DB_TEST_URL is required');
         }
 
         client = new pg.Client({

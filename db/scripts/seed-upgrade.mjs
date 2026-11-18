@@ -8,14 +8,6 @@ if (!connectionString) {
     throw new Error('DB_TEST_URL is required');
 }
 
-const databaseName = decodeURIComponent(
-    new URL(connectionString).pathname.slice(1)
-);
-
-if (databaseName !== 'rio_schema_test') {
-    throw new Error('Migration fixtures must use rio_schema_test');
-}
-
 const fixturePath = fileURLToPath(
     new URL('../tests/migrations/fixtures/existing-data.sql', import.meta.url)
 );
@@ -30,10 +22,20 @@ const client = new pg.Client({
 await client.connect();
 
 try {
+    const schemaCheck = await client.query(
+        "SELECT to_regclass('ci_upgrade.movies') AS movies"
+    );
+
+    if (!schemaCheck.rows[0].movies) {
+        throw new Error(
+            'The ci_upgrade schema has not been initialized.'
+        );
+    }
+
     await client.query('BEGIN');
 
     await client.query(
-        'SET LOCAL search_path TO ci_upgrade, public'
+        'SET LOCAL search_path TO ci_upgrade'
     );
 
     await client.query(sql);

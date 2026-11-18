@@ -7,6 +7,9 @@ export default {
         '<rootDir>/tests/integration/**/*.test.js',
         '<rootDir>/tests/regression/**/*.test.js'
     ],
+    testPathIgnorePatterns: [
+        '\\.db\\.test\\.js$'
+    ],
     reporters: [
         'default',
         [

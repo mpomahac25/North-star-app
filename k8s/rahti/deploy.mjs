@@ -98,8 +98,14 @@ function createDeployment(component) {
     const port = getPort(component);
     const version = getVersion(component);
 
+    const usesDatabase = component.name !== 'frontend';
+
     const environment = {
-        [component.portVariable]: String(port)
+        [component.portVariable]: String(port),
+        ...(usesDatabase ? {
+            DB_HOST: 'postgres',
+            DB_PORT: '5432'
+        } : {})
     };
 
     // Configure frontend communication with the internal backend Service
@@ -175,6 +181,38 @@ function createDeployment(component) {
                                         value
                                     })
                                 ),
+
+                                ...(usesDatabase
+                                    ? [
+                                        {
+                                            name: 'DB_NAME',
+                                            valueFrom: {
+                                                secretKeyRef: {
+                                                    name: 'rio-postgres',
+                                                    key: 'POSTGRESQL_DATABASE'
+                                                }
+                                            }
+                                        },
+                                        {
+                                            name: 'DB_USER',
+                                            valueFrom: {
+                                                secretKeyRef: {
+                                                    name: 'rio-postgres',
+                                                    key: 'POSTGRESQL_USER'
+                                                }
+                                            }
+                                        },
+                                        {
+                                            name: 'DB_PASSWORD',
+                                            valueFrom: {
+                                                secretKeyRef: {
+                                                    name: 'rio-postgres',
+                                                    key: 'POSTGRESQL_PASSWORD'
+                                                }
+                                            }
+                                        }
+                                    ]
+                                    : []),
 
                                 ...(component.name === 'movies'
                                     ? [{

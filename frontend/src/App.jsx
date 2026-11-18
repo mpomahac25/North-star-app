@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import HomePage from "./pages/HomePage";
 import ExplorePage from "./pages/ExplorePage";
+import DetailsPage from "./pages/DetailsPage";
 import TopNav from "./components/layout/TopNav";
 import BottomNav from "./components/layout/BottomNav";
 
@@ -12,6 +13,15 @@ export default function App() {
                 <Routes>
                     <Route path="/" element={<HomePage />} />
                     <Route path="/explore" element={<ExplorePage />} />
+                    <Route path="/details/:id" element={<DetailsPage />} />
+                    <Route
+                        path="/seats/:id"
+                        element={
+                            <div style={{ padding: 20, textAlign: "center" }}>
+                                Select Seats Page (In Progress)
+                            </div>
+                        }
+                    />
                     <Route
                         path="/cart"
                         element={

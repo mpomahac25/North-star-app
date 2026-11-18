@@ -1,0 +1,350 @@
+import {
+  afterAll,
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  jest,
+  test,
+} from "@jest/globals";
+
+const readDaoMocks = {
+    findMovieById: jest.fn(),
+    findMovieByImdbId: jest.fn(),
+    listMovies: jest.fn(),
+    listUpcomingScreeningsByMovieId: jest.fn(),
+    listNowShowingMovies: jest.fn(),
+};
+const writeDaoMocks = { upsertMovie: jest.fn() };
+const originalMoviesApiUrl = process.env.MOVIES_API_URL;
+process.env.MOVIES_API_URL = "http://movies.test:3005";
+
+jest.unstable_mockModule("../../dao/movies/movieReadDao.js", () => readDaoMocks);
+jest.unstable_mockModule("../../dao/movies/movieWriteDao.js", () => writeDaoMocks);
+
+const {
+    getComingSoonMovies,
+    getMovieByImdbId,
+    importMovieByTitle,
+    MovieCatalogError,
+} = await import("../../services/movieCatalogService.js");
+
+function jsonResponse(payload, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+describe("Movie catalog service", () => {
+  beforeEach(() => {
+    jest.spyOn(globalThis, "fetch");
+    readDaoMocks.findMovieById.mockReset();
+    readDaoMocks.findMovieByImdbId.mockReset();
+    readDaoMocks.listMovies.mockReset();
+    readDaoMocks.listUpcomingScreeningsByMovieId.mockReset();
+    readDaoMocks.listNowShowingMovies.mockReset();
+    writeDaoMocks.upsertMovie.mockReset();
+  });
+
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  afterAll(() => {
+    if (originalMoviesApiUrl === undefined) {
+      delete process.env.MOVIES_API_URL;
+    } else {
+      process.env.MOVIES_API_URL = originalMoviesApiUrl;
+    }
+  });
+
+  test("fetches by exact title and persists normalized OMDb fields through the write DAO", async () => {
+    const omdbMovie = {
+        Title: "Drive",
+        Year: "2011",
+        imdbID: "tt0780504",
+        Runtime: "100 min",
+        Plot: "A driver gets caught in a robbery.",
+        Rated: "R",
+        Poster: "https://example.test/drive.jpg",
+        Released: "16 Sep 2011",
+        Genre: "Action, Drama",
+        Director: "Nicolas Winding Refn",
+        Writer: "Hossein Amini, James Sallis",
+        Actors: "Ryan Gosling, Carey Mulligan",
+        Language: "English, Spanish",
+        Country: "United States",
+        Awards: "Nominated for 1 Oscar.",
+        imdbRating: "7.8",
+        imdbVotes: "775,952",
+        BoxOffice: "$35,061,555",
+    };
+    const savedMovie = {
+        id: 42,
+        imdbId: "tt0780504",
+        title: "Drive",
+    };
+    fetch.mockResolvedValueOnce(jsonResponse(omdbMovie));
+    writeDaoMocks.upsertMovie.mockResolvedValueOnce(savedMovie);
+
+    await expect(importMovieByTitle("Drive", "2011")).resolves.toBe(savedMovie);
+
+    const requestUrl = new URL(fetch.mock.calls[0][0]);
+    expect(requestUrl.origin).toBe("http://movies.test:3005");
+    expect(requestUrl.pathname).toBe("/api/movies/title");
+    expect(requestUrl.searchParams.get("title")).toBe("Drive");
+    expect(requestUrl.searchParams.get("year")).toBe("2011");
+    expect(writeDaoMocks.upsertMovie).toHaveBeenCalledWith({
+        imdbId: "tt0780504",
+        title: "Drive",
+        description: "A driver gets caught in a robbery.",
+        durationMinutes: 100,
+        releaseYear: 2011,
+        ageRating: "R",
+        posterUrl: "https://example.test/drive.jpg",
+        releaseDate: "2011-09-16",
+        genres: ["Action", "Drama"],
+        directors: ["Nicolas Winding Refn"],
+        writers: ["Hossein Amini", "James Sallis"],
+        actors: ["Ryan Gosling", "Carey Mulligan"],
+        languages: ["English", "Spanish"],
+        country: "United States",
+        awards: "Nominated for 1 Oscar.",
+        imdbRating: 7.8,
+        imdbVotes: 775952,
+        boxOffice: "$35,061,555",
+    });
+  });
+
+  test("normalizes OMDb N/A optional fields to null", async () => {
+    fetch.mockResolvedValueOnce(jsonResponse({
+      Title: "Mystery",
+      Year: "2026",
+      imdbID: "tt1234567",
+      Runtime: "90 min",
+      Plot: "N/A",
+      Rated: "N/A",
+      Poster: "N/A",
+      Released: "N/A",
+      Genre: "N/A",
+      Director: "N/A",
+      Writer: "N/A",
+      Actors: "N/A",
+      Language: "N/A",
+      Country: "N/A",
+      Awards: "N/A",
+      imdbRating: "N/A",
+      imdbVotes: "N/A",
+      BoxOffice: "N/A",
+    }));
+    writeDaoMocks.upsertMovie.mockResolvedValueOnce({ id: 1 });
+
+    await importMovieByTitle("Mystery");
+
+    expect(writeDaoMocks.upsertMovie).toHaveBeenCalledWith(expect.objectContaining({
+      description: null,
+      ageRating: null,
+      posterUrl: null,
+      releaseYear: 2026,
+      releaseDate: null,
+      genres: [],
+      directors: [],
+      writers: [],
+      actors: [],
+      languages: [],
+      country: null,
+      awards: null,
+      imdbRating: null,
+      imdbVotes: null,
+      boxOffice: null,
+    }));
+  });
+
+  test.each([
+    "N/A",
+    "0 min",
+    "-15 min",
+    "unknown",
+  ])("rejects invalid runtime '%s' before database persistence", async (runtime) => {
+    fetch.mockResolvedValueOnce(jsonResponse({
+        Title: "Drive",
+        Year: "2011",
+        imdbID: "tt0780504",
+        Runtime: runtime,
+    }));
+
+    await expect(importMovieByTitle("Drive", "2011")).rejects.toMatchObject({
+        name: "MovieCatalogError",
+        status: 422,
+    });
+
+    expect(writeDaoMocks.upsertMovie).not.toHaveBeenCalled();
+  });
+
+  test("rejects incomplete OMDb data before writing to the database", async () => {
+    fetch.mockResolvedValueOnce(jsonResponse({
+      Title: "Drive",
+      Runtime: "100 min",
+    }));
+
+    await expect(importMovieByTitle("Drive")).rejects.toMatchObject({
+      name: "MovieCatalogError",
+      status: 502,
+      message: "OMDb returned incomplete movie data.",
+    });
+    expect(writeDaoMocks.upsertMovie).not.toHaveBeenCalled();
+  });
+
+  test("converts a movies-service not-found response into a 404 catalog error", async () => {
+    fetch.mockResolvedValueOnce(jsonResponse({ error: "Movie not found." }, 404));
+
+    await expect(importMovieByTitle("No such movie")).rejects.toMatchObject({
+      name: "MovieCatalogError",
+      status: 404,
+      message: "Movie not found.",
+    });
+    expect(writeDaoMocks.upsertMovie).not.toHaveBeenCalled();
+  });
+
+  test("converts movies-service connection errors into a 502 catalog error", async () => {
+    fetch.mockRejectedValueOnce(new Error("connection refused"));
+
+    await expect(importMovieByTitle("Drive")).rejects.toMatchObject({
+      name: "MovieCatalogError",
+      status: 502,
+      message: "Could not connect to the movies service.",
+    });
+    expect(writeDaoMocks.upsertMovie).not.toHaveBeenCalled();
+  });
+
+  test("rejects malformed Movies service responses without persisting data", async () => {
+    fetch.mockResolvedValueOnce(
+        new Response("invalid-json", {
+            status: 200,
+            headers: {
+                "Content-Type": "application/json",
+            },
+        }),
+    );
+
+    await expect(importMovieByTitle("Drive")).rejects.toMatchObject({
+        name: "MovieCatalogError",
+        status: 502,
+    });
+
+    expect(writeDaoMocks.upsertMovie).not.toHaveBeenCalled();
+  });
+
+  test("transforms catalog movies into the Coming Soon response format", async () => {
+    readDaoMocks.listMovies.mockResolvedValueOnce({
+      total: 1,
+      items: [{
+        imdbId: "tt0780504",
+        title: "Drive",
+        releaseYear: 2027,
+        posterUrl: "https://example.test/poster.jpg",
+      }],
+    });
+
+    await expect(getComingSoonMovies(2027)).resolves.toEqual([{
+      imdbId: "tt0780504",
+      title: "Drive",
+      year: 2027,
+      poster: "https://example.test/poster.jpg",
+    }]);
+    expect(readDaoMocks.listMovies).toHaveBeenCalledWith({
+      releaseYear: 2027,
+      limit: 1000,
+      offset: 0,
+    });
+  });
+
+  test("uses a supplied year when loading Coming Soon movies", async () => {
+    readDaoMocks.listMovies.mockResolvedValueOnce({ total: 0, items: [] });
+
+    await expect(getComingSoonMovies(2011)).resolves.toEqual([]);
+    expect(readDaoMocks.listMovies).toHaveBeenCalledWith(expect.objectContaining({
+      releaseYear: 2011,
+    }));
+  });
+
+  test("exports the catalog error type for route-level error handling", () => {
+    expect(new MovieCatalogError("failure", 502)).toBeInstanceOf(Error);
+  });
+
+  test("returns an existing movie from PostgreSQL without contacting OMDb", async () => {
+    const storedMovie = {
+        id: 42,
+        imdbId: "tt0780504",
+        title: "Drive",
+    };
+
+    readDaoMocks.findMovieByImdbId.mockResolvedValueOnce(storedMovie);
+
+    const result = await getMovieByImdbId("tt0780504");
+
+    expect(result).toBe(storedMovie);
+    expect(readDaoMocks.findMovieByImdbId).toHaveBeenCalledWith("tt0780504");
+    expect(fetch).not.toHaveBeenCalled();
+    expect(writeDaoMocks.upsertMovie).not.toHaveBeenCalled();
+  });
+
+  test("imports and persists a movie when it is missing from PostgreSQL", async () => {
+    const omdbMovie = {
+        imdbID: "tt0133093",
+        Title: "The Matrix",
+        Year: "1999",
+        Runtime: "136 min",
+        Plot: "A computer hacker discovers the truth.",
+        Rated: "R",
+        Poster: "https://example.test/matrix.jpg",
+        Genre: "Action, Sci-Fi",
+    };
+
+    const savedMovie = {
+        id: 15,
+        imdbId: "tt0133093",
+        title: "The Matrix",
+    };
+
+    readDaoMocks.findMovieByImdbId.mockResolvedValueOnce(null);
+    fetch.mockResolvedValueOnce(jsonResponse(omdbMovie));
+    writeDaoMocks.upsertMovie.mockResolvedValueOnce(savedMovie);
+
+    const result = await getMovieByImdbId("tt0133093");
+
+    expect(readDaoMocks.findMovieByImdbId).toHaveBeenCalledWith("tt0133093");
+
+    expect(fetch).toHaveBeenCalledTimes(1);
+
+    const requestUrl = new URL(fetch.mock.calls[0][0]);
+
+    expect(requestUrl.pathname).toBe("/api/movies/tt0133093");
+
+    expect(writeDaoMocks.upsertMovie).toHaveBeenCalledWith(
+        expect.objectContaining({
+            imdbId: "tt0133093",
+            title: "The Matrix",
+            durationMinutes: 136,
+            releaseYear: 1999,
+            genres: ["Action", "Sci-Fi"],
+        }),
+    );
+
+    expect(result).toBe(savedMovie);
+  });
+
+  test("does not contact OMDb when the PostgreSQL lookup fails", async () => {
+    const databaseError = new Error("Database unavailable");
+
+    readDaoMocks.findMovieByImdbId.mockRejectedValueOnce(databaseError);
+
+    await expect(getMovieByImdbId("tt0780504")).rejects.toThrow(
+        "Database unavailable",
+    );
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(writeDaoMocks.upsertMovie).not.toHaveBeenCalled();
+  });
+});

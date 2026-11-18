@@ -3,27 +3,82 @@ import { test, expect } from "@playwright/test";
 const poster = "data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=";
 
 const searchResults = {
-    Search: [
+    items: [
         {
-            imdbID: "tt0780504",
-            Title: "Drive",
-            Year: "2011",
-            Poster: poster,
+            id: 42,
+            imdbId: "tt0780504",
+            title: "Drive",
+            releaseYear: 2011,
+            posterUrl: poster,
         },
         {
-            imdbID: "tt1234567",
-            Title: "Drive Again",
-            Year: "2026",
-            Poster: "N/A",
+            id: 43,
+            imdbId: "tt1234567",
+            title: "Drive Again",
+            releaseYear: 2026,
+            posterUrl: null,
         },
     ],
-    totalResults: "2",
-    Response: "True",
+    total: 2,
+    page: 1,
+    limit: 10,
 };
+
+const duneResults = {
+    items: [
+        {
+            id: 44,
+            imdbId: "tt1160419",
+            title: "Dune",
+            releaseYear: 2021,
+            posterUrl: poster,
+        },
+    ],
+    total: 1,
+    page: 1,
+    limit: 10,
+};
+
+const nowShowingMovies = [
+    {
+        ...searchResults.items[0],
+        screenings: [
+            {
+                id: 1,
+                startTime: "2030-12-01T18:00:00.000Z",
+                theatreName: "Rio Oulu",
+                city: "Oulu",
+            },
+            {
+                id: 2,
+                startTime: "2030-12-02T18:30:00.000Z",
+                theatreName: "Rio Tampere",
+                city: "Tampere",
+            },
+        ],
+    },
+    {
+        ...searchResults.items[1],
+        screenings: [
+            {
+                id: 3,
+                startTime: "2030-12-03T18:00:00.000Z",
+                theatreName: "Rio Oulu",
+                city: "Oulu",
+            },
+            {
+                id: 4,
+                startTime: "2030-12-04T18:30:00.000Z",
+                theatreName: "Rio Tampere",
+                city: "Tampere",
+            },
+        ],
+    },
+];
 
 async function mockSearch(page, body = searchResults, status = 200) {
     await page.route(
-        (url) => url.pathname === "/api/movies/search",
+        (url) => url.pathname === "/api/movies",
         (route) =>
             route.fulfill({
                 status,
@@ -38,18 +93,20 @@ function createPageResults(pageNumber, totalResults = 25) {
     const count = Math.max(0, Math.min(10, totalResults - start));
 
     return {
-        Search: Array.from({ length: count }, (_, index) => {
+        items: Array.from({ length: count }, (_, index) => {
             const number = start + index + 1;
 
             return {
-                imdbID: `tt${1000000 + number}`,
-                Title: `Movie ${number}`,
-                Year: "2026",
-                Poster: poster,
+                id: 1000 + number,
+                imdbId: `tt${1000000 + number}`,
+                title: `Movie ${number}`,
+                releaseYear: 2026,
+                posterUrl: poster,
             };
         }),
-        totalResults: String(totalResults),
-        Response: "True",
+        total: totalResults,
+        page: pageNumber,
+        limit: 10,
     };
 }
 
@@ -72,13 +129,17 @@ function pageButton(page, number) {
 test.describe("Explore Page", () => {
     test("Displays the default movie grid and filter tabs", async ({ page }) => {
         let receivedQuery = null;
+        let receivedPage = null;
+        let receivedLimit = null;
         let showingRequests = 0;
 
         await page.route(
-            (url) => url.pathname === "/api/movies/search",
+            (url) => url.pathname === "/api/movies",
             (route) => {
                 const url = new URL(route.request().url());
                 receivedQuery = url.searchParams.get("q");
+                receivedPage = url.searchParams.get("page");
+                receivedLimit = url.searchParams.get("limit");
 
                 return route.fulfill({
                     status: 200,
@@ -89,14 +150,14 @@ test.describe("Explore Page", () => {
         );
 
         await page.route(
-            (url) => url.pathname === "/api/movies/coming-soon",
+            (url) => url.pathname === "/api/movies/now-showing",
             (route) => {
                 showingRequests++;
 
                 return route.fulfill({
                     status: 200,
                     contentType: "application/json",
-                    body: JSON.stringify(searchResults.Search),
+                    body: JSON.stringify(nowShowingMovies),
                 });
             },
         );
@@ -106,34 +167,45 @@ test.describe("Explore Page", () => {
         await expect(page.getByRole("heading", { name: "Explore movies" })).toBeVisible();
 
         await expect(page.locator(".explore-card")).toHaveCount(2);
-        expect(receivedQuery).toBe("movie");
+
+        expect(receivedQuery).toBeNull();
+        expect(receivedPage).toBe("1");
+        expect(receivedLimit).toBe("10");
 
         await expect(page.getByRole("button", { name: "All movies" })).toBeVisible();
         await expect(page.getByRole("button", { name: "Now showing" })).toBeVisible();
+
+        await page.getByRole("button", { name: "Now showing" }).click();
+
+        await expect(page.locator(".screening-badge")).toHaveCount(4);
+        await expect(page.locator(".explore-card")).toHaveCount(2);
 
         for (const card of await page.locator(".explore-card").all()) {
             await expect(card.locator(".screening-badge")).toHaveCount(2);
         }
 
-        await page.getByRole("button", { name: "Now showing" }).click();
-
-        await expect(page.locator(".explore-card")).toHaveCount(2);
         expect(showingRequests).toBe(1);
-        await expect(page.locator(".screening-badge").first()).toHaveText("Oulu 18:00");
-        await expect(page.locator(".screening-badge").nth(1)).toHaveText("Tampere 20:30");
+
+        await expect(page.locator(".screening-badge").first())
+            .toHaveText(/Oulu.*20:00/);
+
+        await expect(page.locator(".screening-badge").nth(1))
+            .toHaveText(/Tampere.*20:30/);
     });
 
     test("Displays search results and sends correct query parameters", async ({ page }) => {
         let receivedQuery = null;
         let receivedPage = null;
+        let receivedLimit = null;
 
         await page.route(
-            (url) => url.pathname === "/api/movies/search",
+            (url) => url.pathname === "/api/movies",
             (route) => {
                 const url = new URL(route.request().url());
 
                 receivedQuery = url.searchParams.get("q");
                 receivedPage = url.searchParams.get("page");
+                receivedLimit = url.searchParams.get("limit");
 
                 return route.fulfill({
                     status: 200,
@@ -149,6 +221,7 @@ test.describe("Explore Page", () => {
 
         expect(receivedQuery).toBe("drive");
         expect(receivedPage).toBe("1");
+        expect(receivedLimit).toBe("10");
 
         const drive = page.locator(".explore-card").filter({
             has: page.getByRole("heading", { name: "Drive", exact: true }),
@@ -168,9 +241,10 @@ test.describe("Explore Page", () => {
 
     test("Displays a message when no movies match the search", async ({ page }) => {
         await mockSearch(page, {
-            Search: [],
-            totalResults: "0",
-            Response: "True",
+            items: [],
+            total: 0,
+            page: 1,
+            limit: 10,
         });
 
         await page.goto("/explore?search=nonexistent");
@@ -190,7 +264,7 @@ test.describe("Explore Page", () => {
         });
 
         await page.route(
-            (url) => url.pathname === "/api/movies/search",
+            (url) => url.pathname === "/api/movies",
             async (route) => {
                 await responseGate;
 
@@ -246,7 +320,7 @@ test.describe("Explore Page", () => {
 
     test("Handles network failures", async ({ page }) => {
         await page.route(
-            (url) => url.pathname === "/api/movies/search",
+            (url) => url.pathname === "/api/movies",
             (route) => route.abort("failed"),
         );
 
@@ -261,7 +335,7 @@ test.describe("Explore Page", () => {
 
     test("Handles malformed JSON responses", async ({ page }) => {
         await page.route(
-            (url) => url.pathname === "/api/movies/search",
+            (url) => url.pathname === "/api/movies",
             (route) =>
                 route.fulfill({
                     status: 200,
@@ -277,13 +351,15 @@ test.describe("Explore Page", () => {
         );
     });
 
-    test("Rejects an invalid Search property", async ({ page }) => {
+    test("Rejects an invalid items property", async ({ page }) => {
         await mockSearch(page, {
-            Search: {
-                imdbID: "tt0780504",
-                Title: "Drive",
+            items: {
+                id: 42,
+                title: "Drive",
             },
-            Response: "True",
+            total: 1,
+            page: 1,
+            limit: 10,
         });
 
         await page.goto("/explore?search=drive");
@@ -295,10 +371,11 @@ test.describe("Explore Page", () => {
         await expect(page.locator(".explore-card")).toHaveCount(0);
     });
 
-    test("Rejects successful responses missing the Search property", async ({ page }) => {
+    test("Rejects successful responses missing the items property", async ({ page }) => {
         await mockSearch(page, {
-            totalResults: "2",
-            Response: "True",
+            total: 2,
+            page: 1,
+            limit: 10,
         });
 
         await page.goto("/explore?search=drive");
@@ -319,28 +396,14 @@ test.describe("Explore Page", () => {
         const receivedQueries = [];
 
         await page.route(
-            (url) => url.pathname === "/api/movies/search",
+            (url) => url.pathname === "/api/movies",
             (route) => {
                 const url = new URL(route.request().url());
                 const query = url.searchParams.get("q");
 
                 receivedQueries.push(query);
 
-                const results =
-                    query === "dune"
-                        ? {
-                              Search: [
-                                  {
-                                      imdbID: "tt1160419",
-                                      Title: "Dune",
-                                      Year: "2021",
-                                      Poster: poster,
-                                  },
-                              ],
-                              totalResults: "1",
-                              Response: "True",
-                          }
-                        : searchResults;
+                const results = query === "dune" ? duneResults : searchResults;
 
                 return route.fulfill({
                     status: 200,
@@ -392,7 +455,7 @@ test.describe("Explore Page", () => {
         });
 
         await page.route(
-            (url) => url.pathname === "/api/movies/search",
+            (url) => url.pathname === "/api/movies",
             async (route) => {
                 const url = new URL(route.request().url());
                 const query = url.searchParams.get("q");
@@ -420,18 +483,7 @@ test.describe("Explore Page", () => {
                 await route.fulfill({
                     status: 200,
                     contentType: "application/json",
-                    body: JSON.stringify({
-                        Search: [
-                            {
-                                imdbID: "tt1160419",
-                                Title: "Dune",
-                                Year: "2021",
-                                Poster: poster,
-                            },
-                        ],
-                        totalResults: "1",
-                        Response: "True",
-                    }),
+                    body: JSON.stringify(duneResults),
                 });
             },
         );
@@ -479,7 +531,7 @@ test.describe("Explore Page", () => {
         });
 
         await page.route(
-            (url) => url.pathname === "/api/movies/search",
+            (url) => url.pathname === "/api/movies",
             async (route) => {
                 const url = new URL(route.request().url());
 
@@ -503,19 +555,7 @@ test.describe("Explore Page", () => {
                 }
 
                 if (query === "dune") {
-                    await fulfillJson(route, {
-                        Search: [
-                            {
-                                imdbID: "tt1160419",
-                                Title: "Dune",
-                                Year: "2021",
-                                Poster: poster,
-                            },
-                        ],
-                        totalResults: "1",
-                        Response: "True",
-                    });
-
+                    await fulfillJson(route, duneResults);
                     return;
                 }
 
@@ -559,7 +599,7 @@ test.describe("Explore Page", () => {
         const requestedPages = [];
 
         await page.route(
-            (url) => url.pathname === "/api/movies/search",
+            (url) => url.pathname === "/api/movies",
             async (route) => {
                 const url = new URL(route.request().url());
                 const pageNumber = Number(url.searchParams.get("page"));
@@ -567,7 +607,7 @@ test.describe("Explore Page", () => {
                 requestedPages.push({
                     query: url.searchParams.get("q"),
                     page: pageNumber,
-                    type: url.searchParams.get("type"),
+                    limit: url.searchParams.get("limit"),
                 });
 
                 await fulfillJson(route, createPageResults(pageNumber, 25));
@@ -626,19 +666,19 @@ test.describe("Explore Page", () => {
             {
                 query: "movie",
                 page: 2,
-                type: "movie",
+                limit: "10",
             },
             {
                 query: "movie",
                 page: 3,
-                type: "movie",
+                limit: "10",
             },
         ]);
     });
 
     test("Navigates correctly through a large paginated result set", async ({ page }) => {
         await page.route(
-            (url) => url.pathname === "/api/movies/search",
+            (url) => url.pathname === "/api/movies",
             async (route) => {
                 const url = new URL(route.request().url());
                 const pageNumber = Number(url.searchParams.get("page"));
@@ -697,7 +737,7 @@ test.describe("Explore Page", () => {
         });
 
         await page.route(
-            (url) => url.pathname === "/api/movies/search",
+            (url) => url.pathname === "/api/movies",
             async (route) => {
                 const url = new URL(route.request().url());
                 const pageNumber = Number(url.searchParams.get("page"));
@@ -752,7 +792,7 @@ test.describe("Explore Page", () => {
         });
 
         await page.route(
-            (url) => url.pathname === "/api/movies/search",
+            (url) => url.pathname === "/api/movies",
             async (route) => {
                 const url = new URL(route.request().url());
                 const pageNumber = Number(url.searchParams.get("page"));
@@ -802,7 +842,7 @@ test.describe("Explore Page", () => {
         const requests = [];
 
         await page.route(
-            (url) => url.pathname === "/api/movies/search",
+            (url) => url.pathname === "/api/movies",
             async (route) => {
                 const url = new URL(route.request().url());
 
@@ -813,18 +853,7 @@ test.describe("Explore Page", () => {
 
                 const results =
                     query === "dune"
-                        ? {
-                              Search: [
-                                  {
-                                      imdbID: "tt1160419",
-                                      Title: "Dune",
-                                      Year: "2021",
-                                      Poster: poster,
-                                  },
-                              ],
-                              totalResults: "1",
-                              Response: "True",
-                          }
+                        ? duneResults
                         : createPageResults(pageNumber, 20);
 
                 await fulfillJson(route, results);
@@ -871,7 +900,7 @@ test.describe("Explore Page", () => {
         let showingRequests = 0;
 
         await page.route(
-            (url) => url.pathname === "/api/movies/search",
+            (url) => url.pathname === "/api/movies",
             async (route) => {
                 const url = new URL(route.request().url());
                 const pageNumber = Number(url.searchParams.get("page"));
@@ -883,16 +912,25 @@ test.describe("Explore Page", () => {
         );
 
         await page.route(
-            (url) => url.pathname === "/api/movies/coming-soon",
+            (url) => url.pathname === "/api/movies/now-showing",
             async (route) => {
                 showingRequests++;
 
                 await fulfillJson(route, [
                     {
+                        id: 9001,
                         imdbId: "tt9990001",
                         title: "Featured Film",
-                        year: "2026",
-                        poster: null,
+                        releaseYear: 2026,
+                        posterUrl: null,
+                        screenings: [
+                            {
+                                id: 77,
+                                startTime: "2030-12-05T18:00:00.000Z",
+                                theatreName: "Rio Oulu",
+                                city: "Oulu",
+                            },
+                        ],
                     },
                 ]);
             },
@@ -915,6 +953,11 @@ test.describe("Explore Page", () => {
         await expect(cards).toHaveCount(1);
 
         await expect(page.getByRole("heading", { name: "Featured Film" })).toBeVisible();
+
+        await expect(cards.locator(".screening-badge")).toHaveCount(1);
+
+        await expect(cards.locator(".screening-badge"))
+            .toContainText("Oulu");
 
         await expect(page.getByRole("heading", { name: "Movie 1" })).toHaveCount(0);
 
@@ -941,20 +984,21 @@ test.describe("Explore Page", () => {
         let receivedParameters = null;
 
         await page.route(
-            (url) => url.pathname === "/api/movies/search",
+            (url) => url.pathname === "/api/movies",
             async (route) => {
                 const url = new URL(route.request().url());
 
                 receivedParameters = {
                     query: url.searchParams.get("q"),
                     page: url.searchParams.get("page"),
-                    type: url.searchParams.get("type"),
+                    limit: url.searchParams.get("limit"),
                 };
 
                 await fulfillJson(route, {
-                    Search: [],
-                    totalResults: "0",
-                    Response: "True",
+                    items: [],
+                    total: 0,
+                    page: 1,
+                    limit: 10,
                 });
             },
         );
@@ -966,7 +1010,7 @@ test.describe("Explore Page", () => {
         expect(receivedParameters).toEqual({
             query: "Fast & Furious",
             page: "1",
-            type: "movie",
+            limit: "10",
         });
     });
 
@@ -977,7 +1021,7 @@ test.describe("Explore Page", () => {
         let page2Attempts = 0;
 
         await page.route(
-            (url) => url.pathname === "/api/movies/search",
+            (url) => url.pathname === "/api/movies",
             async (route) => {
                 const url = new URL(route.request().url());
                 const pageNumber = Number(url.searchParams.get("page"));
