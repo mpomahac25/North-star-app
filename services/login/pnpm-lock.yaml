@@ -172,9 +172,6 @@ importers:
       openid-client:
         specifier: 6.9.0
         version: 6.9.0
-      pg:
-        specifier: 8.23.1
-        version: 8.23.1
     devDependencies:
       jest:
         specifier: ^30.5.2

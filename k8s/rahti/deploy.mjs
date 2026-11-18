@@ -98,7 +98,7 @@ function createDeployment(component) {
     const port = getPort(component);
     const version = getVersion(component);
 
-    const usesDatabase = component.name !== 'frontend';
+    const usesDatabase = !['frontend', 'login'].includes(component.name);
 
     const environment = {
         [component.portVariable]: String(port),
@@ -126,8 +126,8 @@ function createDeployment(component) {
     }
 
     if (component.name === 'login') {
-        environment.DB_HOST = 'postgres';
-        environment.DB_PORT = '5432';
+        const backend = components.find(item => item.name === 'backend');
+        environment.BACKEND_URL = `http://backend:${getPort(backend)}`;
         environment.GOOGLE_REDIRECT_URI = 'https://rio-theaters.2.rahtiapp.fi/api/auth/google/callback';
         environment.FRONTEND_URL = 'https://rio-theaters.2.rahtiapp.fi';
         environment.SESSION_COOKIE_SECURE = 'true';
@@ -225,32 +225,36 @@ function createDeployment(component) {
                                         }
                                     }]
                                     : []),
+                                ...(component.name === 'backend'
+                                    ? [
+                                        {
+                                            name: 'INTERNAL_API_KEY',
+                                            valueFrom: {
+                                                secretKeyRef: {
+                                                    name: 'rio-internal-auth',
+                                                    key: 'INTERNAL_API_KEY'
+                                                }
+                                            }
+                                        },
+                                        {
+                                            name: 'ENCRYPTION_KEY',
+                                            valueFrom: {
+                                                secretKeyRef: {
+                                                    name: 'rio-backend-crypto',
+                                                    key: 'ENCRYPTION_KEY'
+                                                }
+                                            }
+                                        }
+                                    ]
+                                    : []),
                                 ...(component.name === 'login'
                                     ? [
                                         {
-                                            name: 'DB_NAME',
+                                            name: 'INTERNAL_API_KEY',
                                             valueFrom: {
                                                 secretKeyRef: {
-                                                    name: 'rio-postgres',
-                                                    key: 'POSTGRESQL_DATABASE'
-                                                }
-                                            }
-                                        },
-                                        {
-                                            name: 'DB_USER',
-                                            valueFrom: {
-                                                secretKeyRef: {
-                                                    name: 'rio-postgres',
-                                                    key: 'POSTGRESQL_USER'
-                                                }
-                                            }
-                                        },
-                                        {
-                                            name: 'DB_PASSWORD',
-                                            valueFrom: {
-                                                secretKeyRef: {
-                                                    name: 'rio-postgres',
-                                                    key: 'POSTGRESQL_PASSWORD'
+                                                    name: 'rio-internal-auth',
+                                                    key: 'INTERNAL_API_KEY'
                                                 }
                                             }
                                         },

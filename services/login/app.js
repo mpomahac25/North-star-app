@@ -6,7 +6,6 @@
  */
 
 import express from "express";
-import pg from "pg";
 import { createGoogleAuthHandlers } from "./oauth/oauthHandler.js";
 
 const app = express();
@@ -28,19 +27,38 @@ app.get("/api/health", (req, res) => {
   });
 });
 
-const pool = new pg.Pool({
-  host: process.env.DB_HOST || "localhost",
-  port: Number(process.env.DB_PORT || 5432),
-  database: process.env.DB_NAME || "rio_theaters",
-  user: process.env.DB_USER || "rio",
-  password: process.env.DB_PASSWORD,
-});
-const googleAuth = createGoogleAuthHandlers(pool);
+const googleAuth = createGoogleAuthHandlers();
+
+function isSameOriginRequest(req) {
+  const frontendUrl = process.env.FRONTEND_URL?.trim();
+  if (!frontendUrl) return false;
+
+  try {
+    const expectedOrigin = new URL(frontendUrl).origin;
+    const requestOrigin =
+      req.get("origin") ||
+      (req.get("referer") ? new URL(req.get("referer")).origin : null);
+    return requestOrigin === expectedOrigin;
+  } catch {
+    return false;
+  }
+}
 
 app.get("/api/auth/google", googleAuth.start);
 app.get("/api/auth/google/callback", googleAuth.callback);
 app.get("/api/auth/me", googleAuth.me);
-app.post("/api/auth/logout", googleAuth.logout);
+app.post(
+  "/api/auth/logout",
+  (req, res, next) => {
+    if (!isSameOriginRequest(req)) {
+      return res
+        .status(403)
+        .json({ error: "Request origin could not be verified." });
+    }
+    return next();
+  },
+  googleAuth.logout,
+);
 
 app.use((error, req, res, next) => {
   if (res.headersSent) return next(error);

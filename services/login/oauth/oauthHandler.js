@@ -1,5 +1,5 @@
-import { createHash, randomBytes } from "node:crypto";
 import * as oidc from "openid-client";
+import { createAuthPersistenceClient } from "../authPersistenceClient.js";
 
 const COOKIE_NAMES = {
   state: "rio_oauth_state",
@@ -8,7 +8,6 @@ const COOKIE_NAMES = {
   session: "rio_session",
 };
 const OAUTH_COOKIE_MAX_AGE = 5 * 60 * 1000;
-const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 14;
 let configurationPromise;
 
 function requiredEnvironment(name) {
@@ -59,86 +58,8 @@ function clearOauthCookies(res) {
   }
 }
 
-function hash(value) {
-  return createHash("sha256").update(value).digest("hex");
-}
-
-function createUserRepository(pool) {
-  return {
-    async findOrCreateGoogleUser({ subject, email }) {
-      const client = await pool.connect();
-      try {
-        await client.query("BEGIN");
-        const linked = await client.query(
-          `SELECT u.id, u.username, u.email
-                     FROM oauth_accounts a JOIN users u ON u.id = a.user_id
-                     WHERE a.provider = 'google' AND a.provider_subject = $1`,
-          [subject],
-        );
-        if (linked.rowCount) {
-          await client.query("COMMIT");
-          return linked.rows[0];
-        }
-
-        let user = await client.query(
-          "SELECT id, username, email FROM users WHERE lower(email) = lower($1) FOR UPDATE",
-          [email],
-        );
-        if (!user.rowCount) {
-          const username = `google_${hash(subject).slice(0, 40)}`;
-          user = await client.query(
-            `INSERT INTO users (username, email, password_hash)
-                         VALUES ($1, $2, NULL) RETURNING id, username, email`,
-            [username, email],
-          );
-        }
-
-        await client.query(
-          `INSERT INTO oauth_accounts (user_id, provider, provider_subject, email)
-                     VALUES ($1, 'google', $2, $3)`,
-          [user.rows[0].id, subject, email],
-        );
-        await client.query("COMMIT");
-        return user.rows[0];
-      } catch (error) {
-        await client.query("ROLLBACK");
-        throw error;
-      } finally {
-        client.release();
-      }
-    },
-
-    async createSession(userId) {
-      const token = randomBytes(32).toString("base64url");
-      await pool.query("DELETE FROM auth_sessions WHERE expires_at <= NOW()");
-      await pool.query(
-        `INSERT INTO auth_sessions (token_hash, user_id, expires_at)
-                 VALUES ($1, $2, NOW() + ($3 * INTERVAL '1 second'))`,
-        [hash(token), userId, SESSION_MAX_AGE_SECONDS],
-      );
-      return token;
-    },
-
-    async findSession(token) {
-      const result = await pool.query(
-        `SELECT u.id, u.username, u.email
-                 FROM auth_sessions s JOIN users u ON u.id = s.user_id
-                 WHERE s.token_hash = $1 AND s.expires_at > NOW()`,
-        [hash(token)],
-      );
-      return result.rows[0] ?? null;
-    },
-
-    async deleteSession(token) {
-      await pool.query("DELETE FROM auth_sessions WHERE token_hash = $1", [
-        hash(token),
-      ]);
-    },
-  };
-}
-
-export function createGoogleAuthHandlers(pool) {
-  const users = createUserRepository(pool);
+export function createGoogleAuthHandlers() {
+  const persistence = createAuthPersistenceClient();
 
   return {
     async start(req, res, next) {
@@ -177,19 +98,15 @@ export function createGoogleAuthHandlers(pool) {
         const verifier = getCookie(req, COOKIE_NAMES.verifier);
         if (!state || !nonce || !verifier) {
           clearOauthCookies(res);
-          return res
-            .status(400)
-            .json({
-              error: "Google sign-in could not be verified. Please try again.",
-            });
+          return res.status(400).json({
+            error: "Google sign-in could not be verified. Please try again.",
+          });
         }
         if (req.query.state !== state) {
           clearOauthCookies(res);
-          return res
-            .status(400)
-            .json({
-              error: "Google sign-in could not be verified. Please try again.",
-            });
+          return res.status(400).json({
+            error: "Google sign-in could not be verified. Please try again.",
+          });
         }
         if (req.query.error) {
           clearOauthCookies(res);
@@ -211,23 +128,24 @@ export function createGoogleAuthHandlers(pool) {
         const claims = tokens.claims();
         if (!claims?.sub || !claims.email || claims.email_verified !== true) {
           clearOauthCookies(res);
-          return res
-            .status(401)
-            .json({
-              error: "Google did not provide a verified email address.",
-            });
+          return res.status(401).json({
+            error: "Google did not provide a verified email address.",
+          });
         }
 
-        const user = await users.findOrCreateGoogleUser({
+        const user = await persistence.findOrCreateGoogleUser({
           subject: claims.sub,
           email: claims.email,
         });
-        const token = await users.createSession(user.id);
+        const session = await persistence.createSession(
+          user.id,
+          getCookie(req, COOKIE_NAMES.session),
+        );
         clearOauthCookies(res);
         res.cookie(
           COOKIE_NAMES.session,
-          token,
-          cookieOptions(SESSION_MAX_AGE_SECONDS * 1000),
+          session.sessionToken,
+          cookieOptions(session.expiresInSeconds * 1000),
         );
         const frontendUrl = process.env.FRONTEND_URL?.trim();
         return frontendUrl
@@ -244,9 +162,12 @@ export function createGoogleAuthHandlers(pool) {
         const token = getCookie(req, COOKIE_NAMES.session);
         if (!token)
           return res.status(401).json({ error: "Authentication required." });
-        const user = await users.findSession(token);
-        if (!user)
+        const user = await persistence.findSession(token);
+        if (!user) {
+          await persistence.revokeSession(token);
+          res.clearCookie(COOKIE_NAMES.session, cookieOptions(0));
           return res.status(401).json({ error: "Authentication required." });
+        }
         return res.json({ user });
       } catch (error) {
         return next(error);
@@ -256,7 +177,7 @@ export function createGoogleAuthHandlers(pool) {
     async logout(req, res, next) {
       try {
         const token = getCookie(req, COOKIE_NAMES.session);
-        if (token) await users.deleteSession(token);
+        if (token) await persistence.revokeSession(token);
         res.clearCookie(COOKIE_NAMES.session, cookieOptions(0));
         return res.status(204).end();
       } catch (error) {

@@ -7,6 +7,8 @@
 
 import express from "express";
 import { pool } from "./db/pool.js";
+import { createAuthPersistenceService } from "./services/authPersistenceService.js";
+import { createInternalAuthRouter } from "./routes/internalAuthRoutes.js";
 import {
     getNowShowingMovies,
     getComingSoonMovies,
@@ -54,6 +56,11 @@ app.get("/api/ready", async (req, res) => {
     });
   }
 });
+
+app.use(
+  "/api/internal/auth",
+  createInternalAuthRouter(createAuthPersistenceService(pool)),
+);
 
 app.get("/api/movies/coming-soon", async (req, res) => {
   const year = req.query.year === undefined ? 2026 : Number(req.query.year);

@@ -3,7 +3,7 @@ import pg from "pg";
 
 const schemas = ["ci_fresh", "ci_upgrade"];
 
-describe.each(schemas)("V003 Google auth migration in %s", (schema) => {
+describe.each(schemas)("V005 Google auth migration in %s", (schema) => {
   let client;
 
   beforeAll(async () => {
