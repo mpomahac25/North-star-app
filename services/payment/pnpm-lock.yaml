@@ -169,6 +169,9 @@ importers:
       express:
         specifier: ^5.3.0
         version: 5.3.0(supports-color@8.1.1)
+      stripe:
+        specifier: ^23.2.0
+        version: 23.2.0(@types/node@26.6.6)
     devDependencies:
       jest:
         specifier: ^30.5.2
@@ -1746,6 +1749,15 @@ packages:
   strip-json-comments@3.1.1:
     resolution: {integrity: sha512-6fPc+R4ihwqP6N/aIv2f1gMH8lOVtWQHoqC4yK6oSDVVocumAsfCqjkXnqiYMhmMwS/mEHLp7Vehlt3ql6lEig==}
     engines: {node: '>=8'}
+
+  stripe@23.2.0:
+    resolution: {integrity: sha512-0W0J4yA9qFO2rnF61v8Y62OiO2SmAR+Cv04VJaFUMpCxiq8lG5bxEYbeSMSpMDR9ofFZGd+Z/iUIgSFbOolmUw==}
+    engines: {node: '>=20'}
+    peerDependencies:
+      '@types/node': '>=20'
+    peerDependenciesMeta:
+      '@types/node':
+        optional: true
 
   superagent@10.4.1:
     resolution: {integrity: sha512-PVMkMrhKrSTtFhUU8jiWuGh/gyRMKiyCTCmm0+qVzRNxlfntmRKJkDhlEXN62x3HIb33sQ4kmL8lcSdccWAchQ==}
@@ -3652,6 +3664,10 @@ snapshots:
   strip-final-newline@2.0.0: {}
 
   strip-json-comments@3.1.1: {}
+
+  stripe@23.2.0(@types/node@26.6.6):
+    optionalDependencies:
+      '@types/node': 26.6.6
 
   superagent@10.4.1(supports-color@8.1.1):
     dependencies:
