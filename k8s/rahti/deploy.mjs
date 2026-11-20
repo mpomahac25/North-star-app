@@ -98,7 +98,14 @@ function createDeployment(component) {
     const port = getPort(component);
     const version = getVersion(component);
 
-    const usesDatabase = component.name !== 'frontend';
+    const usesDatabase = component.name === 'backend';
+
+    const readinessPath =
+        component.name === 'backend'
+            ? '/api/ready'
+            : component.name === 'frontend'
+                ? '/api/live'
+                : '/api/health';
 
     const environment = {
         [component.portVariable]: String(port),
@@ -231,7 +238,7 @@ function createDeployment(component) {
 
                             readinessProbe: {
                                 httpGet: {
-                                    path: '/api/health',
+                                    path: readinessPath,
                                     port: 'http'
                                 },
                                 initialDelaySeconds: 5,

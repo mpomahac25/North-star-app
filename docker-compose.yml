@@ -20,10 +20,6 @@ services:
     # Store database files in a persistent Docker volume
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./db/migrations/V002__payment.sql:/docker-entrypoint-initdb.d/02-payment.sql:ro
-      - ./db/migrations/V003__movie_imdb_id.sql:/docker-entrypoint-initdb.d/03-movie-imdb-id.sql:ro
-      - ./db/migrations/V004__movie_details.sql:/docker-entrypoint-initdb.d/04-movie-details.sql:ro
 
     # Expose PostgreSQL only to the local host
     ports:
@@ -41,8 +37,7 @@ services:
   # Flyway
   flyway:
     image: flyway/flyway:13.12.1
-    profiles:
-      - tools
+    command: migrate
 
     depends_on:
       postgres:
@@ -77,11 +72,6 @@ services:
       FRONTEND_PORT: ${FRONTEND_PORT:-3000}
       BACKEND_URL: http://backend:${BACKEND_PORT:-3001}
 
-    # Wait until the backend is healthy before starting
-    depends_on:
-      backend:
-        condition: service_healthy
-
   # Main backend API
   backend:
     image: docker.io/${DOCKERHUB_USERNAME:?DOCKERHUB_USERNAME is required}/rio-theaters-backend:${BACKEND_VERSION:?BACKEND_VERSION is required}
@@ -95,14 +85,14 @@ services:
     environment:
       <<: *db-environment
       BACKEND_PORT: ${BACKEND_PORT:-3001}
+      BOOKING_URL: http://booking:${BOOKING_PORT:-3002}
+      PAYMENT_URL: http://payment:${PAYMENT_PORT:-3004}
       MOVIES_API_URL: http://movies:${MOVIES_API_PORT:-3005}
 
     # Wait until the database is healthy before starting
     depends_on:
-      postgres:
-        condition: service_healthy
-      movies:
-        condition: service_healthy
+      flyway:
+        condition: service_completed_successfully
 
   # Booking microservice
   booking:
@@ -115,13 +105,7 @@ services:
       - "127.0.0.1:${BOOKING_PORT:-3002}:${BOOKING_PORT:-3002}"
 
     environment:
-      <<: *db-environment
       BOOKING_PORT: ${BOOKING_PORT:-3002}
-
-    # Wait until the database is healthy before starting
-    depends_on:
-      postgres:
-        condition: service_healthy
 
   # Login microservice
   login:
@@ -134,13 +118,7 @@ services:
       - "127.0.0.1:${LOGIN_PORT:-3003}:${LOGIN_PORT:-3003}"
 
     environment:
-      <<: *db-environment
       LOGIN_PORT: ${LOGIN_PORT:-3003}
-
-    # Wait until the database is healthy before starting
-    depends_on:
-      postgres:
-        condition: service_healthy
 
   # Payment microservice
   payment:
@@ -153,13 +131,9 @@ services:
       - "127.0.0.1:${PAYMENT_PORT:-3004}:${PAYMENT_PORT:-3004}"
 
     environment:
-      <<: *db-environment
       PAYMENT_PORT: ${PAYMENT_PORT:-3004}
-
-    # Wait until the database is healthy before starting
-    depends_on:
-      postgres:
-        condition: service_healthy
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
 
   # Movies microservice
   movies:
@@ -172,14 +146,8 @@ services:
       - "127.0.0.1:${MOVIES_API_PORT:-3005}:${MOVIES_API_PORT:-3005}"
 
     environment:
-      <<: *db-environment
       MOVIES_API_PORT: ${MOVIES_API_PORT:-3005}
       OMDB_API_KEY: ${OMDB_API_KEY:-}
-
-    # Wait until the database is healthy before starting
-    depends_on:
-      postgres:
-        condition: service_healthy
 
 # Persistent database storage
 volumes:
