@@ -7,6 +7,7 @@ import {
     importMovieFromOmdb,
     updateAdminScreening,
 } from "../api";
+import { formatDate } from "../utils/dateFormat";
 import "./AdminPage.css";
 
 const ROOM_OPTIONS = [
@@ -24,21 +25,7 @@ function formatCurrency(amount) {
 }
 
 function formatDateLabel(isoDate) {
-    if (isoDate === "2026-11-16") {
-        return "Today";
-    }
-
-    const [year, month, day] = isoDate.split("-");
-    const months = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
-
-    if (!year || !month || !day) {
-        return isoDate;
-    }
-
-    return `${Number(day)} ${months[Number(month) - 1]} ${year}`;
+    return formatDate(isoDate) || isoDate;
 }
 
 function calculateShowtimeSchedule(startTime) {
@@ -329,7 +316,7 @@ export default function AdminPage() {
                     <p className="admin-main-subtitle">
                         Your daily sales and screening schedule, in one place.
                     </p>
-                    <p className="admin-meta-caption">Example data · Today, 16 Nov 2026</p>
+                    <p className="admin-meta-caption">Example data · Today, 16.11.2026</p>
                 </div>
 
                 {statusBanner && (
@@ -395,7 +382,7 @@ export default function AdminPage() {
                                             onChange={(e) => setDateFilter(e.target.value)}
                                         >
                                             <option value="today">Today</option>
-                                            <option value="tomorrow">Tomorrow (17 Nov)</option>
+                                            <option value="tomorrow">Tomorrow (17.11.2026)</option>
                                             <option value="all">All Dates</option>
                                         </select>
                                         <ChevronDown size={16} className="admin-select-icon" />

@@ -160,7 +160,7 @@ test.describe("Admin Dashboard", () => {
         await expect(createdRow).toContainText("Black Panther");
         await expect(createdRow).toContainText("Tampere");
         await expect(createdRow).toContainText("Room 1 (100 seats)");
-        await expect(createdRow).toContainText("20 Nov 2026 · 19:15");
+        await expect(createdRow).toContainText("20.11.2026 · 19:15");
         await expect(createdRow).toContainText("+15% premiere");
     });
 
