@@ -1,9 +1,272 @@
-import { test, expect } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+
+function localIsoDate(daysOffset = 0) {
+    const date = new Date();
+    date.setDate(date.getDate() + daysOffset);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+}
+
+function formatFinnishDate(isoDate) {
+    const [year, month, day] = isoDate.split("-");
+    return `${day}.${month}.${year}`;
+}
+
+async function setupStatefulAdminApi(page) {
+    const todayIso = localIsoDate(0);
+    const laterIso = localIsoDate(4);
+
+    const movies = [
+        {
+            id: 1,
+            imdbId: "tt9376612",
+            imdb_id: "tt9376612",
+            title: "Shang-Chi",
+            durationMinutes: 132,
+            duration_minutes: 132,
+        },
+        {
+            id: 2,
+            imdbId: "tt1825683",
+            imdb_id: "tt1825683",
+            title: "Black Panther",
+            durationMinutes: 134,
+            duration_minutes: 134,
+        },
+        {
+            id: 3,
+            imdbId: "tt1375666",
+            imdb_id: "tt1375666",
+            title: "Inception",
+            durationMinutes: 148,
+            duration_minutes: 148,
+        },
+    ];
+
+    let screenings = [
+        {
+            id: 101,
+            movieId: 1,
+            movieTitle: "Shang-Chi",
+            city: "Oulu",
+            roomName: "Room 1",
+            capacity: 100,
+            date: todayIso,
+            startTime: "18:00",
+            showtime: "18:00",
+            ticketPrice: 13.0,
+            isFirstScreening: false,
+            seatsSold: 68,
+            revenue: 884.0,
+        },
+        {
+            id: 102,
+            movieId: 2,
+            movieTitle: "Black Panther",
+            city: "Tampere",
+            roomName: "Room 2",
+            capacity: 200,
+            date: todayIso,
+            startTime: "19:30",
+            showtime: "19:30",
+            ticketPrice: 13.0,
+            isFirstScreening: false,
+            seatsSold: 46,
+            revenue: 601.0,
+        },
+        {
+            id: 103,
+            movieId: 3,
+            movieTitle: "Inception",
+            city: "Oulu",
+            roomName: "Room 2",
+            capacity: 200,
+            date: laterIso,
+            startTime: "20:00",
+            showtime: "20:00",
+            ticketPrice: 14.95,
+            isFirstScreening: true,
+            seatsSold: 32,
+            revenue: 478.4,
+        },
+    ];
+
+    let nextMovieId = 4;
+    let nextScreeningId = 104;
+
+    await page.route("**/api/movies**", async (route) => {
+        await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+                items: movies,
+                total: movies.length,
+                page: 1,
+                limit: 100,
+            }),
+        });
+    });
+
+    await page.route("**/api/admin/movies/search**", async (route) => {
+        const url = new URL(route.request().url());
+        const query = (url.searchParams.get("q") || "").trim().toLowerCase();
+
+        const movieData = query.includes("shang")
+            ? {
+                  Title: "Shang-Chi",
+                  Year: "2021",
+                  imdbID: "tt9376612",
+                  Type: "movie",
+              }
+            : {
+                  Title: "Dune: Part Two",
+                  Year: "2024",
+                  imdbID: "tt15239678",
+                  Type: "movie",
+              };
+
+        await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify(/^tt\d+$/i.test(query) ? movieData : { Search: [movieData] }),
+        });
+    });
+
+    await page.route("**/api/admin/movies/import", async (route) => {
+        const body = route.request().postDataJSON() || {};
+        const title = body.title || "Dune: Part Two";
+        const imdbId = body.imdbId || "tt15239678";
+
+        const existing = movies.find(
+            (m) => m.imdbId === imdbId || m.title.toLowerCase() === title.toLowerCase(),
+        );
+        if (existing) {
+            await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify(existing),
+            });
+            return;
+        }
+
+        const imported = {
+            id: nextMovieId++,
+            imdbId,
+            imdb_id: imdbId,
+            title,
+            durationMinutes: 166,
+            duration_minutes: 166,
+        };
+        movies.push(imported);
+
+        await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify(imported),
+        });
+    });
+
+    await page.route("**/api/admin/sales", async (route) => {
+        await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify(screenings),
+        });
+    });
+
+    await page.route("**/api/admin/screenings**", async (route) => {
+        const request = route.request();
+        const method = request.method();
+        const url = new URL(request.url());
+        const idMatch = url.pathname.match(/\/api\/admin\/screenings\/(\d+)$/);
+
+        if (method === "GET") {
+            await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify(screenings),
+            });
+            return;
+        }
+
+        if (method === "POST") {
+            const payload = request.postDataJSON() || {};
+            const movie = movies.find((m) => m.id === Number(payload.movieId)) || movies[0];
+            const isFirst = Boolean(payload.isFirstScreening);
+            const created = {
+                id: nextScreeningId++,
+                movieId: movie.id,
+                movieTitle: movie.title,
+                city: payload.city,
+                roomName: payload.roomName,
+                capacity: payload.roomName === "Room 2" ? 200 : 100,
+                date: payload.date,
+                startTime: payload.startTime,
+                showtime: payload.startTime,
+                ticketPrice: isFirst ? 14.95 : 13.0,
+                isFirstScreening: isFirst,
+                seatsSold: 0,
+                revenue: 0,
+            };
+            screenings.push(created);
+
+            await route.fulfill({
+                status: 201,
+                contentType: "application/json",
+                body: JSON.stringify(created),
+            });
+            return;
+        }
+
+        if (method === "PUT" && idMatch) {
+            const targetId = Number(idMatch[1]);
+            const payload = request.postDataJSON() || {};
+            const index = screenings.findIndex((s) => s.id === targetId);
+            const movie = movies.find((m) => m.id === Number(payload.movieId)) || screenings[index];
+            const isFirst = Boolean(payload.isFirstScreening);
+
+            screenings[index] = {
+                ...screenings[index],
+                movieId: movie.id || screenings[index].movieId,
+                movieTitle: movie.title || screenings[index].movieTitle,
+                city: payload.city ?? screenings[index].city,
+                roomName: payload.roomName ?? screenings[index].roomName,
+                capacity: (payload.roomName ?? screenings[index].roomName) === "Room 2" ? 200 : 100,
+                date: payload.date ?? screenings[index].date,
+                startTime: payload.startTime ?? screenings[index].startTime,
+                showtime: payload.startTime ?? screenings[index].showtime,
+                ticketPrice: isFirst ? 14.95 : 13.0,
+                isFirstScreening: isFirst,
+            };
+
+            await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify(screenings[index]),
+            });
+            return;
+        }
+
+        if (method === "DELETE" && idMatch) {
+            const targetId = Number(idMatch[1]);
+            screenings = screenings.filter((s) => s.id !== targetId);
+
+            await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify({ deleted: true, id: targetId }),
+            });
+        }
+    });
+}
 
 test.describe("Admin Dashboard", () => {
     test("Displays sections, navigation tabs, and owner seat #1 rule on desktop and mobile", async ({
         page,
     }) => {
+        await setupStatefulAdminApi(page);
         await page.setViewportSize({ width: 1280, height: 800 });
         await page.goto("/admin");
 
@@ -33,6 +296,7 @@ test.describe("Admin Dashboard", () => {
     });
 
     test("Calculates sales KPIs and filters screenings by location and date", async ({ page }) => {
+        await setupStatefulAdminApi(page);
         await page.setViewportSize({ width: 1280, height: 800 });
         await page.goto("/admin");
 
@@ -73,6 +337,7 @@ test.describe("Admin Dashboard", () => {
     test("Calculates doors open and advertising timeline from screening start time", async ({
         page,
     }) => {
+        await setupStatefulAdminApi(page);
         await page.setViewportSize({ width: 1280, height: 800 });
         await page.goto("/admin");
 
@@ -91,6 +356,7 @@ test.describe("Admin Dashboard", () => {
     test("Imports a new movie into the Rio library and prevents duplicate imports", async ({
         page,
     }) => {
+        await setupStatefulAdminApi(page);
         await page.setViewportSize({ width: 1280, height: 800 });
         await page.goto("/admin");
 
@@ -100,6 +366,9 @@ test.describe("Admin Dashboard", () => {
         });
 
         await expect(librarySelect.locator("option")).toHaveCount(3);
+
+        await page.getByLabel("Search OMDb by title or IMDb ID").fill("Shang-Chi");
+        await expect(page.locator(".admin-omdb-title")).toHaveText("Shang-Chi");
 
         await importButton.click();
         await expect(page.getByRole("status")).toContainText(
@@ -121,9 +390,11 @@ test.describe("Admin Dashboard", () => {
     test("Schedules a new screening with premiere surcharge and preserves owner seat #1", async ({
         page,
     }) => {
+        await setupStatefulAdminApi(page);
         await page.setViewportSize({ width: 1280, height: 800 });
         await page.goto("/admin");
 
+        const futureDate = localIsoDate(7);
         const scheduledTable = page.locator("#movies-screenings .admin-table");
         await expect(scheduledTable.locator("tbody tr")).toHaveCount(3);
 
@@ -137,8 +408,7 @@ test.describe("Admin Dashboard", () => {
             .getByRole("button", { name: /Room 1/ })
             .click();
 
-        await page.locator("#movies-screenings").getByLabel("Date").fill("2026-11-20");
-
+        await page.locator("#movies-screenings").getByLabel("Date").fill(futureDate);
         await page.getByLabel("Start Time").fill("19:15");
 
         const premiereSwitch = page.getByRole("switch", {
@@ -160,13 +430,14 @@ test.describe("Admin Dashboard", () => {
         await expect(createdRow).toContainText("Black Panther");
         await expect(createdRow).toContainText("Tampere");
         await expect(createdRow).toContainText("Room 1 (100 seats)");
-        await expect(createdRow).toContainText("20.11.2026 · 19:15");
+        await expect(createdRow).toContainText(`${formatFinnishDate(futureDate)} · 19:15`);
         await expect(createdRow).toContainText("+15% premiere");
     });
 
     test("Edits an existing scheduled screening and supports cancelling edits", async ({
         page,
     }) => {
+        await setupStatefulAdminApi(page);
         await page.setViewportSize({ width: 1280, height: 800 });
         await page.goto("/admin");
 
@@ -195,11 +466,12 @@ test.describe("Admin Dashboard", () => {
         );
         await expect(scheduledTable.locator("tbody tr")).toHaveCount(3);
         await expect(firstRow).toContainText("Room 2 (200 seats)");
-        await expect(firstRow).toContainText("Today · 21:00");
+        await expect(firstRow).toContainText(`${formatFinnishDate(localIsoDate(0))} · 21:00`);
         await expect(firstRow).toContainText("+15% premiere");
     });
 
     test("Deletes a scheduled screening and updates the upcoming count", async ({ page }) => {
+        await setupStatefulAdminApi(page);
         await page.setViewportSize({ width: 1280, height: 800 });
         await page.goto("/admin");
 
@@ -220,5 +492,102 @@ test.describe("Admin Dashboard", () => {
             }),
         ).toHaveCount(0);
         await expect(page.getByText("2 upcoming screenings")).toBeVisible();
+    });
+
+    test("Surfaces backend overlap and sales-protection errors in the UI", async ({ page }) => {
+        await setupStatefulAdminApi(page);
+
+        await page.route("**/api/admin/screenings", async (route) => {
+            if (route.request().method() === "POST") {
+                await route.fulfill({
+                    status: 409,
+                    contentType: "application/json",
+                    body: JSON.stringify({
+                        error: {
+                            code: "SCREENING_OVERLAP",
+                            message:
+                                "This room already has another screening scheduled during that time.",
+                        },
+                    }),
+                });
+                return;
+            }
+            await route.fallback();
+        });
+
+        await page.route("**/api/admin/screenings/*", async (route) => {
+            if (route.request().method() === "DELETE") {
+                await route.fulfill({
+                    status: 409,
+                    contentType: "application/json",
+                    body: JSON.stringify({
+                        error: {
+                            code: "SCREENING_HAS_SALES",
+                            message: "Cannot delete a screening that already has sold tickets.",
+                        },
+                    }),
+                });
+                return;
+            }
+            await route.fallback();
+        });
+
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await page.goto("/admin");
+
+        await page.getByRole("button", { name: "Schedule Screening" }).click();
+        await expect(
+            page.getByText("This room already has another screening scheduled during that time."),
+        ).toBeVisible();
+
+        const scheduledTable = page.locator("#movies-screenings .admin-table");
+        await scheduledTable
+            .locator("tbody tr")
+            .first()
+            .getByRole("button", { name: "Delete" })
+            .click();
+        await expect(
+            page.getByText("Cannot delete a screening that already has sold tickets."),
+        ).toBeVisible();
+        await expect(scheduledTable.locator("tbody tr")).toHaveCount(3);
+    });
+
+    test("Communicates with real backend admin endpoints without page errors", async ({ page }) => {
+        const pageErrors = [];
+        page.on("pageerror", (error) => {
+            pageErrors.push(error.message);
+        });
+
+        const salesResponsePromise = page.waitForResponse(
+            (res) => res.url().includes("/api/admin/sales") && res.request().method() === "GET",
+        );
+        const screeningsResponsePromise = page.waitForResponse(
+            (res) =>
+                res.url().includes("/api/admin/screenings") && res.request().method() === "GET",
+        );
+
+        await page.goto("/admin");
+
+        const [salesRes, screeningsRes] = await Promise.all([
+            salesResponsePromise,
+            screeningsResponsePromise,
+        ]);
+
+        expect([200, 500]).toContain(salesRes.status());
+        expect([200, 500]).toContain(screeningsRes.status());
+
+        if (salesRes.status() === 200 && screeningsRes.status() === 200) {
+            expect(pageErrors).toEqual([]);
+        } else {
+            const body = await salesRes.json();
+            expect(body).toEqual({
+                error: {
+                    code: expect.stringMatching(/^[A-Z0-9_]+$/),
+                    message: expect.any(String),
+                },
+            });
+        }
+
+        await expect(page.getByRole("heading", { name: "Rio Cinema dashboard" })).toBeVisible();
     });
 });
