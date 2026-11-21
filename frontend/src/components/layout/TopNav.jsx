@@ -15,8 +15,8 @@ export default function TopNav({
   const [searchTerm, setSearchTerm] = useState("");
   const navigate = useNavigate();
 
-  const handleSearch = (e) => {
-    if (e.key === "Enter" || e.type === "click") {
+  const handleSearch = (event) => {
+    if (event.key === "Enter" || event.type === "click") {
       const cleanedSearch = searchTerm.trim().toLowerCase();
 
       if (cleanedSearch) {
@@ -70,7 +70,7 @@ export default function TopNav({
           type="text"
           placeholder="Search your favourite movie"
           value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
+          onChange={(event) => setSearchTerm(event.target.value)}
           onKeyDown={handleSearch}
         />
       </div>
