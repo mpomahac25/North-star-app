@@ -1,9 +1,7 @@
 import express from "express";
-import { requireInternalService } from "../middleware/requireInternalService.js";
 
 export function createInternalAuthRouter(authService) {
   const router = express.Router();
-  router.use(requireInternalService);
   router.use((req, res, next) => {
     res.set("Cache-Control", "no-store");
     next();

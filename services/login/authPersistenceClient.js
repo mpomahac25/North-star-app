@@ -7,9 +7,7 @@ function requiredEnvironment(name) {
 
 async function request(path, { method = "GET", body, sessionToken } = {}) {
   const backendUrl = requiredEnvironment("BACKEND_URL");
-  const apiKey = requiredEnvironment("INTERNAL_API_KEY");
   const headers = {
-    "x-internal-api-key": apiKey,
     accept: "application/json",
   };
   if (body !== undefined) headers["content-type"] = "application/json";
