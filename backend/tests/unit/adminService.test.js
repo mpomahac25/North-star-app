@@ -1,8 +1,11 @@
 import { beforeEach, describe, expect, jest, test } from "@jest/globals";
 
-const mockDao = {
+const mockReadDao = {
     listAdminSales: jest.fn(),
     listAdminScreenings: jest.fn(),
+};
+
+const mockWriteDao = {
     insertAdminScreening: jest.fn(),
     updateAdminScreeningById: jest.fn(),
     deleteAdminScreeningById: jest.fn(),
@@ -13,7 +16,8 @@ const mockCatalog = {
     importMovieByTitle: jest.fn(),
 };
 
-jest.unstable_mockModule("../../dao/admin/adminDao.js", () => mockDao);
+jest.unstable_mockModule("../../dao/admin/adminReadDao.js", () => mockReadDao);
+jest.unstable_mockModule("../../dao/admin/adminWriteDao.js", () => mockWriteDao);
 jest.unstable_mockModule("../../services/movieCatalogService.js", () => mockCatalog);
 
 const {
@@ -37,8 +41,8 @@ describe("adminService unit tests", () => {
     });
 
     test("getAdminSales and getAdminScreenings delegate to DAO", async () => {
-        mockDao.listAdminSales.mockResolvedValue([{ id: 1, seatsSold: 5, revenue: 65 }]);
-        mockDao.listAdminScreenings.mockResolvedValue([{ id: 1, city: "Oulu" }]);
+        mockReadDao.listAdminSales.mockResolvedValue([{ id: 1, seatsSold: 5, revenue: 65 }]);
+        mockReadDao.listAdminScreenings.mockResolvedValue([{ id: 1, city: "Oulu" }]);
 
         await expect(getAdminSales()).resolves.toEqual([{ id: 1, seatsSold: 5, revenue: 65 }]);
         await expect(getAdminScreenings()).resolves.toEqual([{ id: 1, city: "Oulu" }]);
@@ -47,7 +51,7 @@ describe("adminService unit tests", () => {
     test("createAdminScreening normalizes city/room and sets standard 13.00 EUR price", async () => {
         const date = futureIsoDate(10);
         const created = { id: 12, movieId: 3, city: "Oulu", roomName: "Room 1", ticketPrice: 13.0 };
-        mockDao.insertAdminScreening.mockResolvedValue({ screening: created });
+        mockWriteDao.insertAdminScreening.mockResolvedValue({ screening: created });
 
         const result = await createAdminScreening({
             movieId: "3",
@@ -58,7 +62,7 @@ describe("adminService unit tests", () => {
             isFirstScreening: false,
         });
 
-        expect(mockDao.insertAdminScreening).toHaveBeenCalledWith({
+        expect(mockWriteDao.insertAdminScreening).toHaveBeenCalledWith({
             movieId: 3,
             city: "Oulu",
             roomName: "Room 1",
@@ -72,7 +76,7 @@ describe("adminService unit tests", () => {
 
     test("createAdminScreening applies +15% premiere price (14.95 EUR) when isFirstScreening is true", async () => {
         const date = futureIsoDate(15);
-        mockDao.insertAdminScreening.mockResolvedValue({
+        mockWriteDao.insertAdminScreening.mockResolvedValue({
             screening: { id: 15, ticketPrice: 14.95, isFirstScreening: true },
         });
 
@@ -85,7 +89,7 @@ describe("adminService unit tests", () => {
             isFirstScreening: true,
         });
 
-        expect(mockDao.insertAdminScreening).toHaveBeenCalledWith(
+        expect(mockWriteDao.insertAdminScreening).toHaveBeenCalledWith(
             expect.objectContaining({
                 city: "Tampere",
                 roomName: "Room 2",
@@ -192,7 +196,7 @@ describe("adminService unit tests", () => {
             status: 400,
             code: expectedCode,
         });
-        expect(mockDao.insertAdminScreening).not.toHaveBeenCalled();
+        expect(mockWriteDao.insertAdminScreening).not.toHaveBeenCalled();
     });
 
     test.each([
@@ -201,7 +205,7 @@ describe("adminService unit tests", () => {
         ["SCREENING_OVERLAP", 409],
         ["UNEXPECTED_DB_FLAG", 500],
     ])("createAdminScreening maps DAO error %s to HTTP %i", async (daoError, expectedStatus) => {
-        mockDao.insertAdminScreening.mockResolvedValue({ error: daoError });
+        mockWriteDao.insertAdminScreening.mockResolvedValue({ error: daoError });
 
         await expect(
             createAdminScreening({
@@ -227,25 +231,25 @@ describe("adminService unit tests", () => {
             isFirstScreening: false,
         };
 
-        mockDao.updateAdminScreeningById.mockResolvedValueOnce({ error: "SCREENING_NOT_FOUND" });
+        mockWriteDao.updateAdminScreeningById.mockResolvedValueOnce({ error: "SCREENING_NOT_FOUND" });
         await expect(updateAdminScreening(999, payload)).rejects.toMatchObject({
             status: 404,
             code: "SCREENING_NOT_FOUND",
         });
 
         const updated = { id: 5, ...payload, ticketPrice: 13.0 };
-        mockDao.updateAdminScreeningById.mockResolvedValueOnce({ screening: updated });
+        mockWriteDao.updateAdminScreeningById.mockResolvedValueOnce({ screening: updated });
         await expect(updateAdminScreening(5, payload)).resolves.toEqual(updated);
     });
 
     test("deleteAdminScreening maps SCREENING_HAS_SALES to 409 and returns deleted object on success", async () => {
-        mockDao.deleteAdminScreeningById.mockResolvedValueOnce({ error: "SCREENING_HAS_SALES" });
+        mockWriteDao.deleteAdminScreeningById.mockResolvedValueOnce({ error: "SCREENING_HAS_SALES" });
         await expect(deleteAdminScreening(8)).rejects.toMatchObject({
             status: 409,
             code: "SCREENING_HAS_SALES",
         });
 
-        mockDao.deleteAdminScreeningById.mockResolvedValueOnce({ deleted: true, id: 8 });
+        mockWriteDao.deleteAdminScreeningById.mockResolvedValueOnce({ deleted: true, id: 8 });
         await expect(deleteAdminScreening(8)).resolves.toEqual({ deleted: true, id: 8 });
     });
 

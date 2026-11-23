@@ -70,6 +70,7 @@ export default function AdminPage() {
 
     // Section 2B: Schedule screening form
     const [editingScreeningId, setEditingScreeningId] = useState(null);
+    const [isSubmittingScreening, setIsSubmittingScreening] = useState(false);
     const [selectedMovieId, setSelectedMovieId] = useState(1);
     const [selectedLocation, setSelectedLocation] = useState("Oulu");
     const [selectedRoom, setSelectedRoom] = useState("Room 1");
@@ -289,6 +290,7 @@ export default function AdminPage() {
 
     const handleScheduleSubmit = async (e) => {
         e.preventDefault();
+        if (isSubmittingScreening) return;
 
         const chosenMovie = libraryMovies.find((m) => m.id === Number(selectedMovieId));
         const chosenRoom = ROOM_OPTIONS.find((r) => r.name === selectedRoom) || ROOM_OPTIONS[0];
@@ -306,6 +308,7 @@ export default function AdminPage() {
             isFirstScreening,
         };
 
+        setIsSubmittingScreening(true);
         try {
             if (editingScreeningId !== null) {
                 await updateAdminScreening(editingScreeningId, payload);
@@ -323,6 +326,8 @@ export default function AdminPage() {
             }
         } catch (err) {
             setStatusBanner(err.message || "Could not save screening.");
+        } finally {
+            setIsSubmittingScreening(false);
         }
     };
 
@@ -913,10 +918,18 @@ export default function AdminPage() {
                                         </div>
 
                                         <div className="admin-form-actions">
-                                            <button type="submit" className="admin-btn-primary">
-                                                {editingScreeningId !== null
-                                                    ? "Save Screening Changes"
-                                                    : "Schedule Screening"}
+                                            <button
+                                                type="submit"
+                                                className="admin-btn-primary"
+                                                disabled={isSubmittingScreening}
+                                            >
+                                                {isSubmittingScreening
+                                                    ? editingScreeningId !== null
+                                                        ? "Saving..."
+                                                        : "Scheduling..."
+                                                    : editingScreeningId !== null
+                                                      ? "Save Screening Changes"
+                                                      : "Schedule Screening"}
                                             </button>
 
                                             {editingScreeningId !== null && (

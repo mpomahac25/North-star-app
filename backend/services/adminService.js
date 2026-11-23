@@ -1,10 +1,12 @@
 import {
-    deleteAdminScreeningById,
-    insertAdminScreening,
     listAdminSales,
     listAdminScreenings,
+} from "../dao/admin/adminReadDao.js";
+import {
+    deleteAdminScreeningById,
+    insertAdminScreening,
     updateAdminScreeningById,
-} from "../dao/admin/adminDao.js";
+} from "../dao/admin/adminWriteDao.js";
 import { getMovieByImdbId, importMovieByTitle } from "./movieCatalogService.js";
 
 const VALID_CITIES = new Map([
