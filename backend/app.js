@@ -9,20 +9,26 @@ import express from "express";
 import { pool } from "./db/pool.js";
 import { createAuthPersistenceService } from "./services/authPersistenceService.js";
 import { createInternalAuthRouter } from "./routes/internalAuthRoutes.js";
+import { createAuthServiceProxy } from "./routes/authServiceProxy.js";
 import {
-    getNowShowingMovies,
-    getComingSoonMovies,
-    getMovie,
-    getUpcomingMovieScreenings,
-    getMovieByImdbId,
-    getMovieList,
-    importMovieByTitle,
-    MovieCatalogError,
+  getNowShowingMovies,
+  getComingSoonMovies,
+  getMovie,
+  getUpcomingMovieScreenings,
+  getMovieByImdbId,
+  getMovieList,
+  importMovieByTitle,
+  MovieCatalogError,
 } from "./services/movieCatalogService.js";
 
 const app = express();
 const SERVICE_IDENTIFIER = "backend";
 const MOVIES_API_URL = process.env.MOVIES_API_URL || "http://localhost:3005";
+
+// Public authentication requests enter through the backend and are forwarded
+// to the login service. Keep this before body parsing so request bodies stream
+// through unchanged, including OAuth callback and session cookies.
+app.use("/api/auth", createAuthServiceProxy());
 
 app.use(express.json());
 
@@ -88,18 +94,18 @@ app.get("/api/movies/coming-soon", async (req, res) => {
 
 // MUST BE KEPT BEFORE /api/movies/:id
 app.get("/api/movies/now-showing", async (req, res) => {
-    try {
-        return res.json(await getNowShowingMovies());
-    } catch (error) {
-        console.error("Could not load Now Showing movies from PostgreSQL:", error);
+  try {
+    return res.json(await getNowShowingMovies());
+  } catch (error) {
+    console.error("Could not load Now Showing movies from PostgreSQL:", error);
 
-        return res.status(500).json({
-            error: {
-                code: "MOVIE_CATALOG_READ_FAILED",
-                message: "Could not load currently showing movies.",
-            },
-        });
-    }
+    return res.status(500).json({
+      error: {
+        code: "MOVIE_CATALOG_READ_FAILED",
+        message: "Could not load currently showing movies.",
+      },
+    });
+  }
 });
 
 app.get("/api/movies", async (req, res) => {
@@ -111,89 +117,81 @@ app.get("/api/movies", async (req, res) => {
     req.query.year === undefined ? undefined : Number(req.query.year);
 
   if (!Number.isInteger(page) || page < 1) {
-    return res
-      .status(400)
-      .json({
-        error: {
-          code: "INVALID_PAGE",
-          message: "Page must be a positive integer.",
-        },
-      });
+    return res.status(400).json({
+      error: {
+        code: "INVALID_PAGE",
+        message: "Page must be a positive integer.",
+      },
+    });
   }
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
-    return res
-      .status(400)
-      .json({
-        error: {
-          code: "INVALID_LIMIT",
-          message: "Limit must be between 1 and 100.",
-        },
-      });
+    return res.status(400).json({
+      error: {
+        code: "INVALID_LIMIT",
+        message: "Limit must be between 1 and 100.",
+      },
+    });
   }
   if (query !== undefined && query.length > 100) {
-    return res
-      .status(400)
-      .json({
-        error: {
-          code: "INVALID_QUERY",
-          message: "Search query cannot exceed 100 characters.",
-        },
-      });
+    return res.status(400).json({
+      error: {
+        code: "INVALID_QUERY",
+        message: "Search query cannot exceed 100 characters.",
+      },
+    });
   }
   if (
     releaseYear !== undefined &&
     (!Number.isInteger(releaseYear) || releaseYear < 1888 || releaseYear > 2100)
   ) {
-    return res
-      .status(400)
-      .json({
-        error: {
-          code: "INVALID_RELEASE_YEAR",
-          message: "Year must be from 1888 to 2100.",
-        },
-      });
+    return res.status(400).json({
+      error: {
+        code: "INVALID_RELEASE_YEAR",
+        message: "Year must be from 1888 to 2100.",
+      },
+    });
   }
 
-    try {
-        const options = {
-            query: query || undefined,
-            releaseYear,
-            limit,
-            offset: (page - 1) * limit,
-        };
+  try {
+    const options = {
+      query: query || undefined,
+      releaseYear,
+      limit,
+      offset: (page - 1) * limit,
+    };
 
-        let result = await getMovieList(options);
+    let result = await getMovieList(options);
 
-        // TODO: Remove temporary OMDb search fallback when the Admin panel is implemented.
-        if (query && query.length >= 2 && page === 1 && result.total === 0) {
+    // TODO: Remove temporary OMDb search fallback when the Admin panel is implemented.
+    if (query && query.length >= 2 && page === 1 && result.total === 0) {
+      try {
+        const url = new URL("/api/movies/search", MOVIES_API_URL);
+        url.searchParams.set("q", query);
+        url.searchParams.set("type", "movie");
+
+        const response = await fetch(url, {
+          signal: AbortSignal.timeout(12000),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+
+          for (const movie of (data.Search ?? []).slice(0, 10)) {
             try {
-                const url = new URL("/api/movies/search", MOVIES_API_URL);
-                url.searchParams.set("q", query);
-                url.searchParams.set("type", "movie");
-
-                const response = await fetch(url, {
-                    signal: AbortSignal.timeout(12000),
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-
-                    for (const movie of (data.Search ?? []).slice(0, 10)) {
-                        try {
-                            await getMovieByImdbId(movie.imdbID);
-                        } catch (error) {
-                            console.error("Could not import movie:", movie.imdbID, error);
-                        }
-                    }
-
-                    result = await getMovieList(options);
-                }
+              await getMovieByImdbId(movie.imdbID);
             } catch (error) {
-                console.error("Temporary OMDb search failed:", error);
+              console.error("Could not import movie:", movie.imdbID, error);
             }
-        }
+          }
 
-        return res.json({ ...result, page, limit });
+          result = await getMovieList(options);
+        }
+      } catch (error) {
+        console.error("Temporary OMDb search failed:", error);
+      }
+    }
+
+    return res.json({ ...result, page, limit });
   } catch (error) {
     console.error("Could not list movies from PostgreSQL:", error);
     return res.status(500).json({
@@ -233,122 +231,122 @@ app.get("/api/movies/search", async (req, res) => {
 // TODO: When authentication is implemented, restrict OMDb fallback to administrators.
 // Public users must only retrieve movies already stored in PostgreSQL.
 app.get("/api/movies/:id", async (req, res) => {
-    const { id } = req.params;
-    const numericId = Number(id);
+  const { id } = req.params;
+  const numericId = Number(id);
 
-    if (/^\d+$/.test(id)) {
-        if (!Number.isSafeInteger(numericId) || numericId < 1) {
-            return res.status(400).json({
-                error: {
-                    code: "INVALID_MOVIE_ID",
-                    message: "Movie ID must be a positive integer.",
-                },
-            });
-        }
-
-        try {
-            const movie = await getMovie(numericId);
-
-            if (!movie) {
-                return res.status(404).json({
-                    error: {
-                        code: "MOVIE_NOT_FOUND",
-                        message: "Movie was not found.",
-                    },
-                });
-            }
-
-            return res.json(movie);
-        } catch (error) {
-            console.error("Could not read movie from PostgreSQL:", error);
-
-            return res.status(500).json({
-                error: {
-                    code: "MOVIE_CATALOG_READ_FAILED",
-                    message: "Could not load movie from the database.",
-                },
-            });
-        }
-    }
-
-    if (!/^tt\d+$/.test(id)) {
-        return res.status(400).json({
-            error: {
-                code: "INVALID_MOVIE_ID",
-                message: "Movie ID must be a positive integer or a valid IMDb ID.",
-            },
-        });
+  if (/^\d+$/.test(id)) {
+    if (!Number.isSafeInteger(numericId) || numericId < 1) {
+      return res.status(400).json({
+        error: {
+          code: "INVALID_MOVIE_ID",
+          message: "Movie ID must be a positive integer.",
+        },
+      });
     }
 
     try {
-        const movie = await getMovieByImdbId(id);
-        return res.json(movie);
-    } catch (error) {
-        if (error instanceof MovieCatalogError) {
-            const code =
-                error.status === 404
-                    ? "MOVIE_NOT_FOUND"
-                    : error.status === 502
-                        ? "MOVIES_SERVICE_UNAVAILABLE"
-                        : "MOVIE_DETAILS_FAILED";
+      const movie = await getMovie(numericId);
 
-            return res.status(error.status).json({
-                error: {
-                    code,
-                    message: error.message,
-                },
-            });
-        }
-
-        console.error("Could not load movie details:", error);
-
-        return res.status(500).json({
-            error: {
-                code: "MOVIE_CATALOG_READ_FAILED",
-                message: "Could not load movie details.",
-            },
+      if (!movie) {
+        return res.status(404).json({
+          error: {
+            code: "MOVIE_NOT_FOUND",
+            message: "Movie was not found.",
+          },
         });
+      }
+
+      return res.json(movie);
+    } catch (error) {
+      console.error("Could not read movie from PostgreSQL:", error);
+
+      return res.status(500).json({
+        error: {
+          code: "MOVIE_CATALOG_READ_FAILED",
+          message: "Could not load movie from the database.",
+        },
+      });
     }
+  }
+
+  if (!/^tt\d+$/.test(id)) {
+    return res.status(400).json({
+      error: {
+        code: "INVALID_MOVIE_ID",
+        message: "Movie ID must be a positive integer or a valid IMDb ID.",
+      },
+    });
+  }
+
+  try {
+    const movie = await getMovieByImdbId(id);
+    return res.json(movie);
+  } catch (error) {
+    if (error instanceof MovieCatalogError) {
+      const code =
+        error.status === 404
+          ? "MOVIE_NOT_FOUND"
+          : error.status === 502
+            ? "MOVIES_SERVICE_UNAVAILABLE"
+            : "MOVIE_DETAILS_FAILED";
+
+      return res.status(error.status).json({
+        error: {
+          code,
+          message: error.message,
+        },
+      });
+    }
+
+    console.error("Could not load movie details:", error);
+
+    return res.status(500).json({
+      error: {
+        code: "MOVIE_CATALOG_READ_FAILED",
+        message: "Could not load movie details.",
+      },
+    });
+  }
 });
 
 app.get("/api/movies/:id/screenings", async (req, res) => {
-    const { id } = req.params;
-    const movieId = Number(id);
+  const { id } = req.params;
+  const movieId = Number(id);
 
-    if (!/^\d+$/.test(id) || !Number.isSafeInteger(movieId) || movieId < 1) {
-        return res.status(400).json({
-            error: {
-                code: "INVALID_MOVIE_ID",
-                message: "Movie ID must be a positive integer.",
-            },
-        });
+  if (!/^\d+$/.test(id) || !Number.isSafeInteger(movieId) || movieId < 1) {
+    return res.status(400).json({
+      error: {
+        code: "INVALID_MOVIE_ID",
+        message: "Movie ID must be a positive integer.",
+      },
+    });
+  }
+
+  try {
+    const movie = await getMovie(movieId);
+
+    if (!movie) {
+      return res.status(404).json({
+        error: {
+          code: "MOVIE_NOT_FOUND",
+          message: "Movie was not found.",
+        },
+      });
     }
 
-    try {
-        const movie = await getMovie(movieId);
+    const screenings = await getUpcomingMovieScreenings(movieId);
 
-        if (!movie) {
-            return res.status(404).json({
-                error: {
-                    code: "MOVIE_NOT_FOUND",
-                    message: "Movie was not found.",
-                },
-            });
-        }
+    return res.json(screenings);
+  } catch (error) {
+    console.error("Could not load movie screenings from PostgreSQL:", error);
 
-        const screenings = await getUpcomingMovieScreenings(movieId);
-
-        return res.json(screenings);
-    } catch (error) {
-        console.error("Could not load movie screenings from PostgreSQL:", error);
-
-        return res.status(500).json({
-            error: {
-                code: "MOVIE_SCREENINGS_READ_FAILED",
-                message: "Could not load movie screenings.",
-            },
-        });
-    }
+    return res.status(500).json({
+      error: {
+        code: "MOVIE_SCREENINGS_READ_FAILED",
+        message: "Could not load movie screenings.",
+      },
+    });
+  }
 });
 
 // TODO: Restrict movie imports from OMDb to authenticated administrators.

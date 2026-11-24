@@ -1,7 +1,7 @@
 import express from "express";
 import { createProxyMiddleware } from "http-proxy-middleware";
 
-export function createApp(backendUrl, loginUrl = "http://localhost:3003") {
+export function createApp(backendUrl) {
   const app = express();
 
   // MUST BE KEPT HERE BEFORE PROXY!!!
@@ -35,39 +35,6 @@ export function createApp(backendUrl, loginUrl = "http://localhost:3003") {
       },
     });
   });
-
-  const authProxy = createProxyMiddleware({
-    target: loginUrl,
-    changeOrigin: true,
-    pathFilter: (pathname) => {
-      return pathname === "/api/auth" || pathname.startsWith("/api/auth/");
-    },
-    on: {
-      error: (error, req, res) => {
-        console.error(`Login proxy error: ${error.message}`);
-
-        if (res.headersSent) {
-          res.destroy(error);
-          return;
-        }
-
-        res.writeHead(502, {
-          "Content-Type": "application/json",
-        });
-
-        res.end(
-          JSON.stringify({
-            error: {
-              code: "AUTH_SERVICE_UNAVAILABLE",
-              message: "The login service is unavailable.",
-            },
-          }),
-        );
-      },
-    },
-  });
-
-  app.use(authProxy);
 
   const apiProxy = createProxyMiddleware({
     target: backendUrl,

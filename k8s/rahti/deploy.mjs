@@ -105,16 +105,16 @@ function createDeployment(component) {
   // Configure frontend communication with the internal backend Service
   if (component.name === "frontend") {
     const backend = components.find((item) => item.name === "backend");
-    const login = components.find((item) => item.name === "login");
 
     environment.BACKEND_URL = `http://backend:${getPort(backend)}`;
-    environment.LOGIN_URL = `http://login:${getPort(login)}`;
   }
 
   if (component.name === "backend") {
     const movies = components.find((item) => item.name === "movies");
+    const login = components.find((item) => item.name === "login");
 
     environment.MOVIES_API_URL = `http://movies:${getPort(movies)}`;
+    environment.LOGIN_SERVICE_URL = `http://login:${getPort(login)}`;
   }
 
   if (component.name === "login") {

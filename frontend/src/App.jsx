@@ -14,7 +14,13 @@ export default function App() {
   const [authState, setAuthState] = useState("checking");
   const [logoutPending, setLogoutPending] = useState(false);
   const isLoggedIn = Boolean(user);
-  const nickname = user?.email?.split("@")[0] || null;
+  const googleFallback = user?.email?.split("@")[0];
+  const nickname =
+    user?.displayName ||
+    (user?.username && !user.username.startsWith("google_")
+      ? user.username
+      : googleFallback) ||
+    null;
 
   useEffect(() => {
     let active = true;
@@ -60,6 +66,11 @@ export default function App() {
     }
   };
 
+  const handleAuthenticated = (authenticatedUser) => {
+    setUser(authenticatedUser);
+    setAuthState("signed-in");
+  };
+
   return (
     <Router>
       <TopNav
@@ -79,8 +90,14 @@ export default function App() {
           <Route path="/explore" element={<ExplorePage />} />
           <Route path="/details/:id" element={<DetailsPage />} />
           <Route path="/admin" element={<AdminPage />} />
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
+          <Route
+            path="/login"
+            element={<LoginPage onAuthenticated={handleAuthenticated} />}
+          />
+          <Route
+            path="/register"
+            element={<RegisterPage onAuthenticated={handleAuthenticated} />}
+          />
           <Route
             path="/seats/:id"
             element={

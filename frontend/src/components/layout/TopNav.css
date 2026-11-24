@@ -195,4 +195,71 @@
     color: var(--text-muted);
     font-size: 12px;
   }
+
+  .logout-dialog-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 1000;
+    display: grid;
+    place-items: center;
+    padding: 20px;
+    background: rgb(0 0 0 / 72%);
+  }
+
+  .logout-dialog {
+    width: min(100%, 400px);
+    padding: 28px;
+    border: 1px solid var(--bg-card-border);
+    border-top: 3px solid var(--red-velvet);
+    border-radius: 14px;
+    background: var(--bg-card);
+    box-shadow: 0 20px 60px rgb(0 0 0 / 45%);
+  }
+
+  .logout-dialog h2 {
+    margin: 0 0 10px;
+    color: var(--text-main);
+    font-size: 20px;
+  }
+
+  .logout-dialog p {
+    margin: 0;
+    color: var(--text-muted);
+    font-size: 14px;
+    line-height: 1.55;
+  }
+
+  .logout-dialog-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 24px;
+  }
+
+  .logout-dialog-actions button {
+    min-height: 40px;
+    padding: 8px 14px;
+    border: 1px solid var(--bg-card-border);
+    border-radius: 8px;
+    font: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .logout-cancel-button {
+    background: var(--bg-main);
+    color: var(--text-main);
+  }
+
+  .logout-confirm-button {
+    border-color: var(--red-velvet) !important;
+    background: var(--red-velvet);
+    color: #ffffff;
+  }
+
+  .logout-dialog-actions button:disabled {
+    cursor: wait;
+    opacity: 0.65;
+  }
 }

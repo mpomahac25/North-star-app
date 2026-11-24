@@ -12,10 +12,9 @@ config({ path: envPath });
 
 const port = Number(process.env.FRONTEND_PORT || 3000);
 const backendUrl = process.env.BACKEND_URL || "http://localhost:3001";
-const loginUrl = process.env.LOGIN_URL || "http://localhost:3003";
 const isDevelopment = process.argv.includes("--dev");
 
-const app = createApp(backendUrl, loginUrl);
+const app = createApp(backendUrl);
 const server = createServer(app);
 
 if (isDevelopment) {
@@ -46,5 +45,4 @@ if (isDevelopment) {
 server.listen(port, "0.0.0.0", () => {
   console.log(`Frontend running on http://localhost:${port}`);
   console.log(`Backend proxy target: ${backendUrl}`);
-  console.log(`Login proxy target: ${loginUrl}`);
 });

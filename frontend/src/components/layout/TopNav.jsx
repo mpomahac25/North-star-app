@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Search, ShoppingCart, LogOut, UserRound } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import rioLogo from "../../assets/rio-logo.png";
@@ -13,7 +13,21 @@ export default function TopNav({
   onLogout,
 }) {
   const [searchTerm, setSearchTerm] = useState("");
+  const [logoutDialogOpen, setLogoutDialogOpen] = useState(false);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    if (!logoutDialogOpen) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape" && !logoutPending) {
+        setLogoutDialogOpen(false);
+      }
+    };
+
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [logoutDialogOpen, logoutPending]);
 
   const handleSearch = (event) => {
     if (event.key === "Enter" || event.type === "click") {
@@ -102,7 +116,7 @@ export default function TopNav({
             <button
               type="button"
               className="top-logout-button"
-              onClick={onLogout}
+              onClick={() => setLogoutDialogOpen(true)}
               disabled={logoutPending}
               aria-label="Sign out"
               title="Sign out"
@@ -125,6 +139,51 @@ export default function TopNav({
           </NavLink>
         )}
       </div>
+
+      {logoutDialogOpen && (
+        <div
+          className="logout-dialog-backdrop"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !logoutPending) {
+              setLogoutDialogOpen(false);
+            }
+          }}
+        >
+          <section
+            aria-labelledby="logout-dialog-title"
+            aria-modal="true"
+            className="logout-dialog"
+            role="dialog"
+          >
+            <h2 id="logout-dialog-title">Sign out?</h2>
+            <p>
+              Are you sure you want to sign out of your Rio Theaters account?
+            </p>
+            <div className="logout-dialog-actions">
+              <button
+                autoFocus
+                className="logout-cancel-button"
+                disabled={logoutPending}
+                onClick={() => setLogoutDialogOpen(false)}
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                className="logout-confirm-button"
+                disabled={logoutPending}
+                onClick={async () => {
+                  await onLogout();
+                  setLogoutDialogOpen(false);
+                }}
+                type="button"
+              >
+                {logoutPending ? "Signing out…" : "Sign out"}
+              </button>
+            </div>
+          </section>
+        </div>
+      )}
     </header>
   );
 }

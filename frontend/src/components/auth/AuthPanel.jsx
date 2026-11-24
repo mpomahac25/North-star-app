@@ -1,4 +1,5 @@
-import { Link } from "react-router-dom";
+import { useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
 import "./AuthPanel.css";
 
 function GoogleMark() {
@@ -29,8 +30,62 @@ function GoogleMark() {
   );
 }
 
-export default function AuthPanel({ mode }) {
+export default function AuthPanel({ mode, onAuthenticated }) {
   const isRegistration = mode === "register";
+  const navigate = useNavigate();
+  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState("");
+  const [identifier, setIdentifier] = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  async function handleSubmit(event) {
+    event.preventDefault();
+    setError("");
+    setIsSubmitting(true);
+
+    const endpoint = isRegistration ? "/api/auth/register" : "/api/auth/login";
+    const body = isRegistration
+      ? { username, email, password }
+      : { identifier, password };
+
+    try {
+      const response = await fetch(endpoint, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+      const result = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(
+          typeof result.error === "string"
+            ? result.error
+            : "Could not authenticate. Please try again.",
+        );
+      }
+
+      if (!result.user) {
+        throw new Error(
+          "Authentication succeeded, but the user profile was missing.",
+        );
+      }
+
+      onAuthenticated(result.user);
+      navigate("/");
+    } catch (requestError) {
+      setError(
+        requestError.message || "Could not reach the authentication service.",
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
 
   return (
     <div className="auth-page">
@@ -45,17 +100,84 @@ export default function AuthPanel({ mode }) {
             : "Sign in to continue to your Rio Theaters account."}
         </p>
 
+        <form className="auth-form" onSubmit={handleSubmit}>
+          {isRegistration ? (
+            <>
+              <label htmlFor="auth-username">Username</label>
+              <input
+                autoComplete="username"
+                id="auth-username"
+                maxLength={50}
+                onChange={(event) => setUsername(event.target.value)}
+                required
+                value={username}
+              />
+              <label htmlFor="auth-email">Email</label>
+              <input
+                autoComplete="email"
+                id="auth-email"
+                maxLength={255}
+                onChange={(event) => setEmail(event.target.value)}
+                required
+                type="email"
+                value={email}
+              />
+            </>
+          ) : (
+            <>
+              <label htmlFor="auth-identifier">Username or email</label>
+              <input
+                autoComplete="username"
+                id="auth-identifier"
+                maxLength={255}
+                onChange={(event) => setIdentifier(event.target.value)}
+                required
+                value={identifier}
+              />
+            </>
+          )}
+
+          <label htmlFor="auth-password">Password</label>
+          <input
+            autoComplete={isRegistration ? "new-password" : "current-password"}
+            id="auth-password"
+            maxLength={128}
+            minLength={isRegistration ? 8 : undefined}
+            onChange={(event) => setPassword(event.target.value)}
+            required
+            type="password"
+            value={password}
+          />
+
+          {error && (
+            <p className="auth-error" role="alert">
+              {error}
+            </p>
+          )}
+
+          <button
+            className="auth-submit-button"
+            disabled={isSubmitting}
+            type="submit"
+          >
+            {isSubmitting
+              ? "Please wait…"
+              : isRegistration
+                ? "Create account"
+                : "Sign in"}
+          </button>
+        </form>
+
+        <div className="auth-divider" aria-hidden="true">
+          <span>or</span>
+        </div>
+
         <a className="google-auth-button" href="/api/auth/google">
           <GoogleMark />
           <span>
             {isRegistration ? "Sign up with Google" : "Continue with Google"}
           </span>
         </a>
-
-        <p className="auth-future-note" role="note">
-          Email and password {isRegistration ? "sign-up" : "sign-in"} is coming
-          soon.
-        </p>
 
         <p className="auth-switch">
           {isRegistration ? "Already have an account? " : "New to Rio? "}

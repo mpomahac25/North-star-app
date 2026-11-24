@@ -1,11 +1,17 @@
 import * as oidc from "openid-client";
 import { createAuthPersistenceClient } from "../authPersistenceClient.js";
+import {
+  SESSION_COOKIE_NAME,
+  authCookieOptions,
+  clearSessionCookie,
+  readAuthCookie,
+  setSessionCookie,
+} from "../authCookies.js";
 
 const COOKIE_NAMES = {
   state: "rio_oauth_state",
   nonce: "rio_oauth_nonce",
   verifier: "rio_oauth_verifier",
-  session: "rio_session",
 };
 const OAUTH_COOKIE_MAX_AGE = 5 * 60 * 1000;
 let configurationPromise;
@@ -25,36 +31,13 @@ function getOidcConfiguration() {
   return configurationPromise;
 }
 
-function cookieOptions(maxAge) {
-  return {
-    httpOnly: true,
-    secure: process.env.SESSION_COOKIE_SECURE === "true",
-    sameSite: "Lax",
-    path: "/api/auth",
-    maxAge,
-  };
-}
-
-function getCookie(req, name) {
-  const item = req.headers.cookie
-    ?.split(";")
-    .map((part) => part.trim())
-    .find((part) => part.startsWith(`${name}=`));
-  if (!item) return undefined;
-  try {
-    return decodeURIComponent(item.slice(name.length + 1));
-  } catch {
-    return undefined;
-  }
-}
-
 function clearOauthCookies(res) {
   for (const name of [
     COOKIE_NAMES.state,
     COOKIE_NAMES.nonce,
     COOKIE_NAMES.verifier,
   ]) {
-    res.clearCookie(name, cookieOptions(0));
+    res.clearCookie(name, authCookieOptions(0));
   }
 }
 
@@ -74,7 +57,7 @@ export function createGoogleAuthHandlers() {
           [COOKIE_NAMES.nonce, nonce],
           [COOKIE_NAMES.verifier, verifier],
         ]) {
-          res.cookie(name, value, cookieOptions(OAUTH_COOKIE_MAX_AGE));
+          res.cookie(name, value, authCookieOptions(OAUTH_COOKIE_MAX_AGE));
         }
 
         const url = oidc.buildAuthorizationUrl(config, {
@@ -93,9 +76,9 @@ export function createGoogleAuthHandlers() {
 
     async callback(req, res, next) {
       try {
-        const state = getCookie(req, COOKIE_NAMES.state);
-        const nonce = getCookie(req, COOKIE_NAMES.nonce);
-        const verifier = getCookie(req, COOKIE_NAMES.verifier);
+        const state = readAuthCookie(req, COOKIE_NAMES.state);
+        const nonce = readAuthCookie(req, COOKIE_NAMES.nonce);
+        const verifier = readAuthCookie(req, COOKIE_NAMES.verifier);
         if (!state || !nonce || !verifier) {
           clearOauthCookies(res);
           return res.status(400).json({
@@ -139,14 +122,10 @@ export function createGoogleAuthHandlers() {
         });
         const session = await persistence.createSession(
           user.id,
-          getCookie(req, COOKIE_NAMES.session),
+          readAuthCookie(req, SESSION_COOKIE_NAME),
         );
         clearOauthCookies(res);
-        res.cookie(
-          COOKIE_NAMES.session,
-          session.sessionToken,
-          cookieOptions(session.expiresInSeconds * 1000),
-        );
+        setSessionCookie(res, session);
         const frontendUrl = process.env.FRONTEND_URL?.trim();
         return frontendUrl
           ? res.redirect(new URL("/", frontendUrl).href)
@@ -159,13 +138,13 @@ export function createGoogleAuthHandlers() {
 
     async me(req, res, next) {
       try {
-        const token = getCookie(req, COOKIE_NAMES.session);
+        const token = readAuthCookie(req, SESSION_COOKIE_NAME);
         if (!token)
           return res.status(401).json({ error: "Authentication required." });
         const user = await persistence.findSession(token);
         if (!user) {
           await persistence.revokeSession(token);
-          res.clearCookie(COOKIE_NAMES.session, cookieOptions(0));
+          clearSessionCookie(res);
           return res.status(401).json({ error: "Authentication required." });
         }
         return res.json({ user });
@@ -176,9 +155,9 @@ export function createGoogleAuthHandlers() {
 
     async logout(req, res, next) {
       try {
-        const token = getCookie(req, COOKIE_NAMES.session);
+        const token = readAuthCookie(req, SESSION_COOKIE_NAME);
         if (token) await persistence.revokeSession(token);
-        res.clearCookie(COOKIE_NAMES.session, cookieOptions(0));
+        clearSessionCookie(res);
         return res.status(204).end();
       } catch (error) {
         return next(error);

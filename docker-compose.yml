@@ -73,7 +73,6 @@ services:
     environment:
       FRONTEND_PORT: ${FRONTEND_PORT:-3000}
       BACKEND_URL: http://backend:${BACKEND_PORT:-3001}
-      LOGIN_URL: http://login:${LOGIN_PORT:-3003}
 
     # Wait until the backend is healthy before starting
     depends_on:
@@ -96,6 +95,7 @@ services:
       <<: *db-environment
       BACKEND_PORT: ${BACKEND_PORT:-3001}
       MOVIES_API_URL: http://movies:${MOVIES_API_PORT:-3005}
+      LOGIN_SERVICE_URL: http://login:${LOGIN_PORT:-3003}
       ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
 
     # Wait until the database and movie dependency are healthy before starting
@@ -139,7 +139,7 @@ services:
       BACKEND_URL: http://backend:${BACKEND_PORT:-3001}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
-      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:3003/api/auth/google/callback}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:3000/api/auth/google/callback}
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
 

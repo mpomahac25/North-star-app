@@ -3,13 +3,13 @@ import request from "supertest";
 import { describe, expect, test } from "@jest/globals";
 import { createApp } from "../../app.js";
 
-describe("Frontend authentication proxy", () => {
-  let loginServer;
+describe("Frontend authentication proxy through the backend", () => {
+  let backendServer;
   let app;
 
   beforeAll(async () => {
-    const login = express();
-    login.get("/api/auth/google", (req, res) => {
+    const backend = express();
+    backend.get("/api/auth/google", (req, res) => {
       res.cookie("rio_oauth_state", "state-value", {
         httpOnly: true,
         sameSite: "Lax",
@@ -17,25 +17,22 @@ describe("Frontend authentication proxy", () => {
       });
       res.redirect("https://accounts.google.com/o/oauth2/v2/auth");
     });
-    login.get("/api/auth/me", (req, res) => {
+    backend.get("/api/auth/me", (req, res) => {
       res.json({
         authenticated: req.get("cookie") === "rio_session=session-value",
       });
     });
 
     await new Promise((resolve) => {
-      loginServer = login.listen(0, "127.0.0.1", resolve);
+      backendServer = backend.listen(0, "127.0.0.1", resolve);
     });
-    app = createApp(
-      "http://127.0.0.1:1",
-      `http://127.0.0.1:${loginServer.address().port}`,
-    );
+    app = createApp(`http://127.0.0.1:${backendServer.address().port}`);
   });
 
   afterAll(async () => {
-    if (!loginServer) return;
+    if (!backendServer) return;
     await new Promise((resolve, reject) => {
-      loginServer.close((error) => (error ? reject(error) : resolve()));
+      backendServer.close((error) => (error ? reject(error) : resolve()));
     });
   });
 

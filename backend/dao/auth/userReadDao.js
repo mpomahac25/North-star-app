@@ -21,5 +21,27 @@ export function createUserReadDao(db) {
       );
       return result.rows[0] ?? null;
     },
+
+    async findByUsername(username) {
+      const result = await db.query(
+        `SELECT id
+         FROM users
+         WHERE lower(username) = lower($1)
+         FOR UPDATE`,
+        [username],
+      );
+      return result.rows[0] ?? null;
+    },
+
+    async findForPasswordAuthentication(identifier) {
+      const isEmail = identifier.includes("@");
+      const result = await db.query(
+        `SELECT id, username, email, password_hash
+         FROM users
+         WHERE lower(${isEmail ? "email" : "username"}) = lower($1)`,
+        [identifier],
+      );
+      return result.rows[0] ?? null;
+    },
   };
 }

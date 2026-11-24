@@ -35,6 +35,22 @@ async function request(path, { method = "GET", body, sessionToken } = {}) {
 
 export function createAuthPersistenceClient() {
   return {
+    async createPasswordUser({ username, email, password }) {
+      const result = await request("/password-users", {
+        method: "POST",
+        body: { username, email, password },
+      });
+      return result.user;
+    },
+
+    async authenticatePasswordUser({ identifier, password }) {
+      const result = await request("/password-authentication", {
+        method: "POST",
+        body: { identifier, password },
+      });
+      return result.user;
+    },
+
     async findOrCreateGoogleUser({ subject, email }) {
       const result = await request("/google-users", {
         method: "POST",

@@ -7,6 +7,7 @@
 
 import express from "express";
 import { createGoogleAuthHandlers } from "./oauth/oauthHandler.js";
+import { createPasswordAuthHandlers } from "./passwordAuthHandlers.js";
 
 const app = express();
 const SERVICE_IDENTIFIER = "login";
@@ -28,6 +29,7 @@ app.get("/api/health", (req, res) => {
 });
 
 const googleAuth = createGoogleAuthHandlers();
+const passwordAuth = createPasswordAuthHandlers();
 
 function isSameOriginRequest(req) {
   const frontendUrl = process.env.FRONTEND_URL?.trim();
@@ -46,6 +48,8 @@ function isSameOriginRequest(req) {
 
 app.get("/api/auth/google", googleAuth.start);
 app.get("/api/auth/google/callback", googleAuth.callback);
+app.post("/api/auth/register", passwordAuth.register);
+app.post("/api/auth/login", passwordAuth.login);
 app.get("/api/auth/me", googleAuth.me);
 app.post(
   "/api/auth/logout",

@@ -7,6 +7,71 @@ export function createInternalAuthRouter(authService) {
     next();
   });
 
+  router.post("/password-users", async (req, res, next) => {
+    const { username, email, password } = req.body ?? {};
+    if (
+      typeof username !== "string" ||
+      username.trim().length < 1 ||
+      username.trim().length > 50 ||
+      typeof email !== "string" ||
+      email.trim().length > 255 ||
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim()) ||
+      typeof password !== "string" ||
+      password.length < 8 ||
+      password.length > 128
+    ) {
+      return res.status(400).json({
+        error:
+          "Username, valid email, and a password of 8 to 128 characters are required.",
+      });
+    }
+
+    try {
+      const user = await authService.createPasswordUser({
+        username: username.trim(),
+        email: email.trim(),
+        password,
+      });
+      return res.status(201).json({ user });
+    } catch (error) {
+      if (error.status === 409) {
+        return res.status(409).json({ error: error.message });
+      }
+      return next(error);
+    }
+  });
+
+  router.post("/password-authentication", async (req, res, next) => {
+    const { identifier, password } = req.body ?? {};
+    if (
+      typeof identifier !== "string" ||
+      !identifier.trim() ||
+      identifier.length > 255 ||
+      typeof password !== "string" ||
+      !password ||
+      password.length > 128
+    ) {
+      return res.status(400).json({
+        error: "A username or email and password are required.",
+      });
+    }
+
+    try {
+      const user = await authService.authenticatePasswordUser({
+        identifier: identifier.trim(),
+        password,
+      });
+      if (!user) {
+        return res
+          .status(401)
+          .json({ error: "Invalid username/email or password." });
+      }
+      return res.json({ user });
+    } catch (error) {
+      return next(error);
+    }
+  });
+
   router.post("/google-users", async (req, res, next) => {
     const { subject, email } = req.body ?? {};
     if (
