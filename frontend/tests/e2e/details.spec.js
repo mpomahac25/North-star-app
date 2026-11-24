@@ -100,7 +100,7 @@ test.describe("Movie Details Page", () => {
         await expect(page.locator(".details-cast-grid"))
             .toContainText("Ryan Gosling");
 
-        await expect(page.getByText("16 Sep 2011")).toBeVisible();
+        await expect(page.getByText("16.09.2011")).toBeVisible();
         await expect(page.getByText("Nominated for 1 Oscar.")).toBeVisible();
 
         const screeningSection = page.locator(".details-section-block").filter({
@@ -349,7 +349,7 @@ test.describe("Movie Details Page", () => {
         await expect(page).toHaveURL(/\/seats\/42$/);
     });
 
-    test("Formats release dates as DD MMM YYYY", async ({ page }) => {
+    test("Formats release dates as DD.MM.YYYY", async ({ page }) => {
         await mockDetails(page, {
             movieData: {
                 ...movie,
@@ -360,7 +360,7 @@ test.describe("Movie Details Page", () => {
         await page.goto("/details/42");
 
         await expect(
-            page.getByText("03 Jan 2011"),
+            page.getByText("03.01.2011"),
         ).toBeVisible();
     });
 });

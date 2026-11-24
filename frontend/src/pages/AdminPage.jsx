@@ -5,8 +5,10 @@ import {
     deleteAdminScreening,
     fetchAdminDashboardInitialData,
     importMovieFromOmdb,
+    searchAdminOmdbMovies,
     updateAdminScreening,
 } from "../api";
+import { formatDate } from "../utils/dateFormat";
 import "./AdminPage.css";
 
 const ROOM_OPTIONS = [
@@ -24,21 +26,7 @@ function formatCurrency(amount) {
 }
 
 function formatDateLabel(isoDate) {
-    if (isoDate === "2026-11-16") {
-        return "Today";
-    }
-
-    const [year, month, day] = isoDate.split("-");
-    const months = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
-
-    if (!year || !month || !day) {
-        return isoDate;
-    }
-
-    return `${Number(day)} ${months[Number(month) - 1]} ${year}`;
+    return formatDate(isoDate) || isoDate;
 }
 
 function calculateShowtimeSchedule(startTime) {
@@ -82,6 +70,7 @@ export default function AdminPage() {
 
     // Section 2B: Schedule screening form
     const [editingScreeningId, setEditingScreeningId] = useState(null);
+    const [isSubmittingScreening, setIsSubmittingScreening] = useState(false);
     const [selectedMovieId, setSelectedMovieId] = useState(1);
     const [selectedLocation, setSelectedLocation] = useState("Oulu");
     const [selectedRoom, setSelectedRoom] = useState("Room 1");
@@ -182,20 +171,74 @@ export default function AdminPage() {
         };
     }, [filteredSales]);
 
+    const [remoteSearch, setRemoteSearch] = useState({
+        query: "",
+        items: [],
+        loading: false,
+    });
+
+    const cleanedOmdbQuery = omdbQuery.trim();
+
+    const hasLocalOmdbMatch = useMemo(() => {
+        if (!cleanedOmdbQuery) return false;
+        const lower = cleanedOmdbQuery.toLowerCase();
+        return omdbCatalog.some(
+            (movie) =>
+                movie.title.toLowerCase().includes(lower) ||
+                (movie.imdbId && movie.imdbId.toLowerCase().includes(lower)),
+        );
+    }, [omdbCatalog, cleanedOmdbQuery]);
+
+    useEffect(() => {
+        if (cleanedOmdbQuery.length < 2 || hasLocalOmdbMatch) {
+            return;
+        }
+
+        let cancelled = false;
+
+        const timer = setTimeout(async () => {
+            setRemoteSearch({ query: cleanedOmdbQuery, items: [], loading: true });
+            try {
+                const results = await searchAdminOmdbMovies(cleanedOmdbQuery);
+                if (!cancelled) {
+                    setRemoteSearch({ query: cleanedOmdbQuery, items: results, loading: false });
+                }
+            } catch {
+                if (!cancelled) {
+                    setRemoteSearch({ query: cleanedOmdbQuery, items: [], loading: false });
+                }
+            }
+        }, 350);
+
+        return () => {
+            cancelled = true;
+            clearTimeout(timer);
+        };
+    }, [cleanedOmdbQuery, hasLocalOmdbMatch]);
+
+    const isSearchingOmdb =
+        cleanedOmdbQuery.length >= 2 &&
+        !hasLocalOmdbMatch &&
+        (remoteSearch.query !== cleanedOmdbQuery || remoteSearch.loading);
+
     const previewMovie = useMemo(() => {
-        const cleaned = omdbQuery.trim().toLowerCase();
-        if (!cleaned) {
+        if (!cleanedOmdbQuery) {
             return omdbCatalog[0] || null;
         }
 
-        return (
-            omdbCatalog.find(
-                (movie) =>
-                    movie.title.toLowerCase().includes(cleaned) ||
-                    (movie.imdbId && movie.imdbId.toLowerCase().includes(cleaned)),
-            ) || null
+        const lower = cleanedOmdbQuery.toLowerCase();
+        const localMatch = omdbCatalog.find(
+            (movie) =>
+                movie.title.toLowerCase().includes(lower) ||
+                (movie.imdbId && movie.imdbId.toLowerCase().includes(lower)),
         );
-    }, [omdbCatalog, omdbQuery]);
+
+        if (localMatch) return localMatch;
+        if (remoteSearch.query === cleanedOmdbQuery) {
+            return remoteSearch.items[0] || null;
+        }
+        return null;
+    }, [omdbCatalog, cleanedOmdbQuery, remoteSearch]);
 
     const isPreviewAlreadyImported = useMemo(() => {
         if (!previewMovie) return false;
@@ -210,6 +253,14 @@ export default function AdminPage() {
         () => calculateShowtimeSchedule(screeningStartTime),
         [screeningStartTime],
     );
+
+    const refreshAdminData = async () => {
+        const data = await fetchAdminDashboardInitialData();
+        setLibraryMovies(data.libraryMovies);
+        setOmdbCatalog(data.omdbCatalog);
+        setSalesScreenings(data.salesScreenings);
+        setScheduledScreenings(data.scheduledScreenings);
+    };
 
     const handleImportMovie = async () => {
         if (!previewMovie) return;
@@ -227,14 +278,19 @@ export default function AdminPage() {
             return;
         }
 
-        const savedMovie = await importMovieFromOmdb(previewMovie);
-        setLibraryMovies((prev) => [...prev, savedMovie]);
-        setSelectedMovieId(savedMovie.id);
-        setStatusBanner(`Imported "${savedMovie.title}" into Rio Database.`);
+        try {
+            const savedMovie = await importMovieFromOmdb(previewMovie);
+            await refreshAdminData();
+            setSelectedMovieId(savedMovie.id);
+            setStatusBanner(`Imported "${savedMovie.title}" into Rio Database.`);
+        } catch (err) {
+            setStatusBanner(err.message || "Could not import movie.");
+        }
     };
 
     const handleScheduleSubmit = async (e) => {
         e.preventDefault();
+        if (isSubmittingScreening) return;
 
         const chosenMovie = libraryMovies.find((m) => m.id === Number(selectedMovieId));
         const chosenRoom = ROOM_OPTIONS.find((r) => r.name === selectedRoom) || ROOM_OPTIONS[0];
@@ -252,21 +308,26 @@ export default function AdminPage() {
             isFirstScreening,
         };
 
-        if (editingScreeningId !== null) {
-            const updated = await updateAdminScreening(editingScreeningId, payload);
-            setScheduledScreenings((prev) =>
-                prev.map((item) => (item.id === editingScreeningId ? updated : item)),
-            );
-            setEditingScreeningId(null);
-            setStatusBanner(
-                `Updated screening for "${chosenMovie.title}" in ${selectedLocation} (${chosenRoom.name}). Seat #1 remains reserved for owner.`,
-            );
-        } else {
-            const created = await createAdminScreening(payload);
-            setScheduledScreenings((prev) => [...prev, created]);
-            setStatusBanner(
-                `Scheduled "${chosenMovie.title}" in ${selectedLocation} (${chosenRoom.name}) at ${screeningStartTime}. Seat #1 permanently reserved for owner.`,
-            );
+        setIsSubmittingScreening(true);
+        try {
+            if (editingScreeningId !== null) {
+                await updateAdminScreening(editingScreeningId, payload);
+                await refreshAdminData();
+                setEditingScreeningId(null);
+                setStatusBanner(
+                    `Updated screening for "${chosenMovie.title}" in ${selectedLocation} (${chosenRoom.name}). Seat #1 remains reserved for owner.`,
+                );
+            } else {
+                await createAdminScreening(payload);
+                await refreshAdminData();
+                setStatusBanner(
+                    `Scheduled "${chosenMovie.title}" in ${selectedLocation} (${chosenRoom.name}) at ${screeningStartTime}. Seat #1 permanently reserved for owner.`,
+                );
+            }
+        } catch (err) {
+            setStatusBanner(err.message || "Could not save screening.");
+        } finally {
+            setIsSubmittingScreening(false);
         }
     };
 
@@ -281,18 +342,22 @@ export default function AdminPage() {
         scheduleFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
     };
 
+    const handleDeleteScreening = async (id, title) => {
+        try {
+            await deleteAdminScreening(id);
+            await refreshAdminData();
+            if (editingScreeningId === id) {
+                setEditingScreeningId(null);
+            }
+            setStatusBanner(`Removed screening for "${title}".`);
+        } catch (err) {
+            setStatusBanner(err.message || "Could not delete screening.");
+        }
+    };
+
     const handleCancelEdit = () => {
         setEditingScreeningId(null);
         setIsFirstScreening(false);
-    };
-
-    const handleDeleteScreening = async (id, title) => {
-        await deleteAdminScreening(id);
-        setScheduledScreenings((prev) => prev.filter((item) => item.id !== id));
-        if (editingScreeningId === id) {
-            setEditingScreeningId(null);
-        }
-        setStatusBanner(`Removed screening for "${title}".`);
     };
 
     return (
@@ -329,7 +394,7 @@ export default function AdminPage() {
                     <p className="admin-main-subtitle">
                         Your daily sales and screening schedule, in one place.
                     </p>
-                    <p className="admin-meta-caption">Example data · Today, 16 Nov 2026</p>
+                    <p className="admin-meta-caption">Example data · Today, 16.11.2026</p>
                 </div>
 
                 {statusBanner && (
@@ -395,7 +460,7 @@ export default function AdminPage() {
                                             onChange={(e) => setDateFilter(e.target.value)}
                                         >
                                             <option value="today">Today</option>
-                                            <option value="tomorrow">Tomorrow (17 Nov)</option>
+                                            <option value="tomorrow">Tomorrow (17.11.2026)</option>
                                             <option value="all">All Dates</option>
                                         </select>
                                         <ChevronDown size={16} className="admin-select-icon" />
@@ -412,10 +477,16 @@ export default function AdminPage() {
                                     <hr className="admin-card-divider" />
                                     <div className="admin-kpi-breakdown">
                                         <span>
-                                            Oulu <strong>{formatCurrency(salesMetrics.ouluRevenue)}</strong>
+                                            Oulu{" "}
+                                            <strong>
+                                                {formatCurrency(salesMetrics.ouluRevenue)}
+                                            </strong>
                                         </span>
                                         <span>
-                                            Tampere <strong>{formatCurrency(salesMetrics.tampereRevenue)}</strong>
+                                            Tampere{" "}
+                                            <strong>
+                                                {formatCurrency(salesMetrics.tampereRevenue)}
+                                            </strong>
                                         </span>
                                     </div>
                                 </article>
@@ -431,7 +502,8 @@ export default function AdminPage() {
                                             Oulu <strong>{salesMetrics.ouluSeats} seats</strong>
                                         </span>
                                         <span>
-                                            Tampere <strong>{salesMetrics.tampereSeats} seats</strong>
+                                            Tampere{" "}
+                                            <strong>{salesMetrics.tampereSeats} seats</strong>
                                         </span>
                                     </div>
                                 </article>
@@ -471,7 +543,9 @@ export default function AdminPage() {
                                         ) : (
                                             filteredSales.map((row) => (
                                                 <tr key={row.id}>
-                                                    <td className="font-semibold">{row.movieTitle}</td>
+                                                    <td className="font-semibold">
+                                                        {row.movieTitle}
+                                                    </td>
                                                     <td>{row.city}</td>
                                                     <td>
                                                         {row.roomName} ({row.capacity} seats)
@@ -544,7 +618,8 @@ export default function AdminPage() {
                             </div>
 
                             <p className="admin-footnote">
-                                Seat #1 is permanently reserved for the owner in every screening and is not included in seats sold.
+                                Seat #1 is permanently reserved for the owner in every screening and
+                                is not included in seats sold.
                             </p>
                         </section>
 
@@ -570,7 +645,9 @@ export default function AdminPage() {
                                 {/* Left Panel: Import Movie from OMDb */}
                                 <article className="admin-panel-card">
                                     <div className="admin-panel-header">
-                                        <h3 className="admin-panel-title">Import Movie from OMDb</h3>
+                                        <h3 className="admin-panel-title">
+                                            Import Movie from OMDb
+                                        </h3>
                                         <p className="admin-panel-desc">
                                             Preview a movie before adding it to Rio.
                                         </p>
@@ -592,7 +669,9 @@ export default function AdminPage() {
                                             <div>
                                                 <span
                                                     className={`admin-status-pill ${
-                                                        isPreviewAlreadyImported ? "imported" : "pending"
+                                                        isPreviewAlreadyImported
+                                                            ? "imported"
+                                                            : "pending"
                                                     }`}
                                                 >
                                                     {isPreviewAlreadyImported
@@ -612,19 +691,32 @@ export default function AdminPage() {
                                                         {previewMovie.title}
                                                     </h4>
                                                     <p className="admin-omdb-meta">
-                                                        {previewMovie.releaseYear} ·{" "}
-                                                        {previewMovie.durationMinutes} min
+                                                        {previewMovie.releaseYear || "—"}
+                                                        {previewMovie.durationMinutes
+                                                            ? ` · ${previewMovie.durationMinutes} min`
+                                                            : ""}
                                                     </p>
-                                                    <span className="admin-omdb-role">Director</span>
-                                                    <p className="admin-omdb-director">
-                                                        {previewMovie.directors.join(", ")}
-                                                    </p>
+                                                    {previewMovie.directors &&
+                                                        previewMovie.directors.length > 0 && (
+                                                            <>
+                                                                <span className="admin-omdb-role">
+                                                                    Director
+                                                                </span>
+                                                                <p className="admin-omdb-director">
+                                                                    {previewMovie.directors.join(
+                                                                        ", ",
+                                                                    )}
+                                                                </p>
+                                                            </>
+                                                        )}
                                                 </div>
                                             </div>
                                         </>
                                     ) : (
                                         <div className="admin-omdb-empty">
-                                            No OMDb match for &ldquo;{omdbQuery}&rdquo;. Try Shang-Chi, Dune, Oppenheimer, or tt9376612.
+                                            {isSearchingOmdb
+                                                ? `Searching OMDb for "${cleanedOmdbQuery}"...`
+                                                : `No OMDb match for "${omdbQuery}". Try Shang-Chi, Dune, Oppenheimer, or tt9376612.`}
                                         </div>
                                     )}
 
@@ -655,9 +747,15 @@ export default function AdminPage() {
                                         </p>
                                     </div>
 
-                                    <form className="admin-schedule-form" onSubmit={handleScheduleSubmit}>
+                                    <form
+                                        className="admin-schedule-form"
+                                        onSubmit={handleScheduleSubmit}
+                                    >
                                         <div className="admin-field-group">
-                                            <label htmlFor="schedule-movie-select" className="admin-label">
+                                            <label
+                                                htmlFor="schedule-movie-select"
+                                                className="admin-label"
+                                            >
                                                 Movie · from Rio library
                                             </label>
                                             <div className="admin-select-wrapper">
@@ -675,7 +773,10 @@ export default function AdminPage() {
                                                         </option>
                                                     ))}
                                                 </select>
-                                                <ChevronDown size={16} className="admin-select-icon" />
+                                                <ChevronDown
+                                                    size={16}
+                                                    className="admin-select-icon"
+                                                />
                                             </div>
                                         </div>
 
@@ -692,11 +793,17 @@ export default function AdminPage() {
                                                             key={city}
                                                             type="button"
                                                             className={`admin-choice-btn ${
-                                                                selectedLocation === city ? "active" : ""
+                                                                selectedLocation === city
+                                                                    ? "active"
+                                                                    : ""
                                                             }`}
-                                                            onClick={() => setSelectedLocation(city)}
+                                                            onClick={() =>
+                                                                setSelectedLocation(city)
+                                                            }
                                                         >
-                                                            <span className="choice-main">{city}</span>
+                                                            <span className="choice-main">
+                                                                {city}
+                                                            </span>
                                                         </button>
                                                     ))}
                                                 </div>
@@ -714,11 +821,17 @@ export default function AdminPage() {
                                                             key={room.name}
                                                             type="button"
                                                             className={`admin-choice-btn ${
-                                                                selectedRoom === room.name ? "active" : ""
+                                                                selectedRoom === room.name
+                                                                    ? "active"
+                                                                    : ""
                                                             }`}
-                                                            onClick={() => setSelectedRoom(room.name)}
+                                                            onClick={() =>
+                                                                setSelectedRoom(room.name)
+                                                            }
                                                         >
-                                                            <span className="choice-main">{room.name}</span>
+                                                            <span className="choice-main">
+                                                                {room.name}
+                                                            </span>
                                                             <span className="choice-sub">
                                                                 {room.capacity} seats
                                                             </span>
@@ -730,7 +843,10 @@ export default function AdminPage() {
 
                                         <div className="admin-two-col-controls">
                                             <div className="admin-field-group">
-                                                <label htmlFor="schedule-date-input" className="admin-label">
+                                                <label
+                                                    htmlFor="schedule-date-input"
+                                                    className="admin-label"
+                                                >
                                                     Date
                                                 </label>
                                                 <input
@@ -738,13 +854,18 @@ export default function AdminPage() {
                                                     type="date"
                                                     className="admin-input"
                                                     value={screeningDate}
-                                                    onChange={(e) => setScreeningDate(e.target.value)}
+                                                    onChange={(e) =>
+                                                        setScreeningDate(e.target.value)
+                                                    }
                                                     required
                                                 />
                                             </div>
 
                                             <div className="admin-field-group">
-                                                <label htmlFor="schedule-time-input" className="admin-label">
+                                                <label
+                                                    htmlFor="schedule-time-input"
+                                                    className="admin-label"
+                                                >
                                                     Start Time
                                                 </label>
                                                 <input
@@ -762,7 +883,8 @@ export default function AdminPage() {
 
                                         <div className="admin-showtime-rules">
                                             <p className="admin-rules-caption">
-                                                Doors open 15 min before ads; ads start 12 min before movie
+                                                Doors open 15 min before ads; ads start 12 min
+                                                before movie
                                             </p>
                                             <p className="admin-rules-timeline">
                                                 Doors {showtimeBreakdown.doors} · Ads{" "}
@@ -789,9 +911,7 @@ export default function AdminPage() {
                                                 className={`admin-switch ${
                                                     isFirstScreening ? "checked" : ""
                                                 }`}
-                                                onClick={() =>
-                                                    setIsFirstScreening((prev) => !prev)
-                                                }
+                                                onClick={() => setIsFirstScreening((prev) => !prev)}
                                             >
                                                 <span className="admin-switch-thumb" />
                                             </button>
@@ -801,10 +921,15 @@ export default function AdminPage() {
                                             <button
                                                 type="submit"
                                                 className="admin-btn-primary"
+                                                disabled={isSubmittingScreening}
                                             >
-                                                {editingScreeningId !== null
-                                                    ? "Save Screening Changes"
-                                                    : "Schedule Screening"}
+                                                {isSubmittingScreening
+                                                    ? editingScreeningId !== null
+                                                        ? "Saving..."
+                                                        : "Scheduling..."
+                                                    : editingScreeningId !== null
+                                                      ? "Save Screening Changes"
+                                                      : "Schedule Screening"}
                                             </button>
 
                                             {editingScreeningId !== null && (
@@ -860,7 +985,9 @@ export default function AdminPage() {
                                                             +15% premiere
                                                         </span>
                                                     ) : (
-                                                        <span className="admin-muted-text">Standard</span>
+                                                        <span className="admin-muted-text">
+                                                            Standard
+                                                        </span>
                                                     )}
                                                 </td>
                                                 <td className="text-right">
@@ -868,7 +995,9 @@ export default function AdminPage() {
                                                         <button
                                                             type="button"
                                                             className="admin-action-link edit"
-                                                            onClick={() => handleEditScreening(item)}
+                                                            onClick={() =>
+                                                                handleEditScreening(item)
+                                                            }
                                                         >
                                                             Edit
                                                         </button>

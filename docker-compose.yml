@@ -23,6 +23,8 @@ services:
       - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
       - ./db/migrations/V002__payment.sql:/docker-entrypoint-initdb.d/02-payment.sql:ro
       - ./db/migrations/V003__movie_imdb_id.sql:/docker-entrypoint-initdb.d/03-movie-imdb-id.sql:ro
+      - ./db/migrations/V004__movie_details.sql:/docker-entrypoint-initdb.d/04-movie-details.sql:ro
+      - ./db/migrations/V005__screening_room_occupancy.sql:/docker-entrypoint-initdb.d/04-screening-room-occupancy.sql:ro
 
     # Expose PostgreSQL only to the local host
     ports:
