@@ -208,7 +208,7 @@ describe("Admin PostgreSQL integration tests", () => {
         });
     });
 
-    test("insertAdminScreening blocks overlapping times in the same room but allows back-to-back or other rooms", async () => {
+    test("insertAdminScreening enforces room occupancy and allows adjacent occupancy windows or other rooms", async () => {
         const screeningDate = futureIsoDate(32);
 
         const first = await insertAdminScreening(
@@ -239,20 +239,38 @@ describe("Admin PostgreSQL integration tests", () => {
         );
         expect(overlap).toEqual({ error: "SCREENING_OVERLAP" });
 
-        const backToBack = await insertAdminScreening(
+        const insufficientTurnaround = await insertAdminScreening(
             {
                 movieId: testMovieId,
                 city: "Tampere",
                 roomName: "Room 1",
                 date: screeningDate,
-                startTime: "18:00",
+                startTime: "18:44",
                 isFirstScreening: false,
                 ticketPrice: 13.0,
             },
             databasePool,
         );
-        expect(backToBack.error).toBeUndefined();
-        createdScreeningIds.push(backToBack.screening.id);
+
+        expect(insufficientTurnaround).toEqual({
+            error: "SCREENING_OVERLAP",
+        });
+
+        const nextAvailable = await insertAdminScreening(
+            {
+                movieId: testMovieId,
+                city: "Tampere",
+                roomName: "Room 1",
+                date: screeningDate,
+                startTime: "18:45",
+                isFirstScreening: false,
+                ticketPrice: 13.0,
+            },
+            databasePool,
+        );
+
+        expect(nextAvailable.error).toBeUndefined();
+        createdScreeningIds.push(nextAvailable.screening.id);
 
         const otherRoom = await insertAdminScreening(
             {
@@ -355,5 +373,36 @@ describe("Admin PostgreSQL integration tests", () => {
 
         const remaining = await listAdminScreenings(databasePool);
         expect(remaining.some((s) => s.id === screeningId)).toBe(false);
+    });
+
+    test("concurrent screening creation allows only one request", async () => {
+        const screeningDate = futureIsoDate(34);
+
+        const payload = {
+            movieId: testMovieId,
+            city: "Oulu",
+            roomName: "Room 1",
+            date: screeningDate,
+            startTime: "18:00",
+            isFirstScreening: false,
+            ticketPrice: 13.0,
+        };
+
+        const results = await Promise.all([
+            insertAdminScreening(payload, databasePool),
+            insertAdminScreening(payload, databasePool),
+        ]);
+
+        const created = results.filter((result) => result.screening);
+        const conflicts = results.filter(
+            (result) => result.error === "SCREENING_OVERLAP",
+        );
+
+        expect(created).toHaveLength(1);
+        expect(conflicts).toHaveLength(1);
+
+        createdScreeningIds.push(
+            ...created.map((result) => result.screening.id),
+        );
     });
 });

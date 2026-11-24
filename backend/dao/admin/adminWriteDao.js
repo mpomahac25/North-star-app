@@ -2,6 +2,13 @@ import { pool } from "../../db/pool.js";
 
 const BASE_TICKET_PRICE = 13.0;
 
+function isScreeningOverlapError(error) {
+    return (
+        error?.code === "23P01" &&
+        error?.constraint === "screenings_room_occupancy_no_overlap"
+    );
+}
+
 function mapScreeningRow(row) {
     const ticketPrice = Number(row.ticket_price);
     return {
@@ -140,20 +147,6 @@ export async function insertAdminScreening(data, database = pool) {
             return { error: resolved.error };
         }
 
-        const overlapRes = await client.query(
-            `SELECT id FROM screenings
-             WHERE room_id = $1
-               AND start_time < $3
-               AND end_time > $2
-             LIMIT 1`,
-            [resolved.roomId, resolved.startTs, resolved.endTs],
-        );
-
-        if (overlapRes.rows.length > 0) {
-            await client.query("ROLLBACK");
-            return { error: "SCREENING_OVERLAP" };
-        }
-
         const insertRes = await client.query(
             `INSERT INTO screenings (movie_id, room_id, start_time, end_time, ticket_price)
              VALUES ($1, $2, $3, $4, $5)
@@ -191,6 +184,11 @@ export async function insertAdminScreening(data, database = pool) {
         return { screening: created };
     } catch (error) {
         await client.query("ROLLBACK");
+
+        if (isScreeningOverlapError(error)) {
+            return { error: "SCREENING_OVERLAP" };
+        }
+
         throw error;
     } finally {
         client.release();
@@ -216,21 +214,6 @@ export async function updateAdminScreeningById(screeningId, data, database = poo
             return { error: resolved.error };
         }
 
-        const overlapRes = await client.query(
-            `SELECT id FROM screenings
-             WHERE room_id = $1
-               AND id <> $4
-               AND start_time < $3
-               AND end_time > $2
-             LIMIT 1`,
-            [resolved.roomId, resolved.startTs, resolved.endTs, screeningId],
-        );
-
-        if (overlapRes.rows.length > 0) {
-            await client.query("ROLLBACK");
-            return { error: "SCREENING_OVERLAP" };
-        }
-
         await client.query(
             `UPDATE screenings
              SET movie_id = $1,
@@ -254,6 +237,11 @@ export async function updateAdminScreeningById(screeningId, data, database = poo
         return { screening: updated };
     } catch (error) {
         await client.query("ROLLBACK");
+
+        if (isScreeningOverlapError(error)) {
+            return { error: "SCREENING_OVERLAP" };
+        }
+
         throw error;
     } finally {
         client.release();

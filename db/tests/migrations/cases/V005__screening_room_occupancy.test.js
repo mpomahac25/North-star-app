@@ -186,33 +186,57 @@ describe.each(schemas)("V005 screening room occupancy in %s", (schema) => {
         ).rejects.toMatchObject({ code: "23P01" });
     });
 
-    test("allows only one of two concurrent conflicting inserts", async () => {
-        const one = new pg.Client({ connectionString: databaseUrl });
-        const two = new pg.Client({ connectionString: databaseUrl });
+    test("concurrent conflicting inserts commit only one screening", async () => {
+        const first = new pg.Client({ connectionString: databaseUrl });
+        const second = new pg.Client({ connectionString: databaseUrl });
+
+        let transactionOpen = false;
+        let competingInsert;
 
         try {
-            await Promise.all([one.connect(), two.connect()]);
+            await Promise.all([first.connect(), second.connect()]);
 
-            const results = await Promise.allSettled([
-                insertScreening(one, roomOneId, firstStart, firstEnd),
-                insertScreening(two, roomOneId, firstStart, firstEnd),
-            ]);
+            await first.query("BEGIN");
+            transactionOpen = true;
 
-            expect(
-                results.filter((result) => result.status === "fulfilled"),
-            ).toHaveLength(1);
+            await insertScreening(first, roomOneId, firstStart, firstEnd);
 
-            expect(
-                results.filter((result) => result.status === "rejected"),
-            ).toHaveLength(1);
-
-            const failure = results.find(
-                (result) => result.status === "rejected",
+            competingInsert = insertScreening(
+                second,
+                roomOneId,
+                firstStart,
+                firstEnd,
             );
 
-            expect(failure.reason).toMatchObject({ code: "23P01" });
+            await new Promise((resolve) => setTimeout(resolve, 50));
+
+            await first.query("COMMIT");
+            transactionOpen = false;
+
+            await expect(competingInsert).rejects.toMatchObject({
+                code: "23P01",
+            });
+
+            const persisted = await client.query(
+                `SELECT COUNT(*)::integer AS count
+             FROM ${schema}.screenings
+             WHERE room_id = $1
+               AND start_time = $2
+               AND end_time = $3`,
+                [roomOneId, firstStart, firstEnd],
+            );
+
+            expect(persisted.rows[0].count).toBe(1);
         } finally {
-            await Promise.allSettled([one.end(), two.end()]);
+            if (transactionOpen) {
+                await first.query("ROLLBACK").catch(() => { });
+            }
+
+            if (competingInsert) {
+                await Promise.allSettled([competingInsert]);
+            }
+
+            await Promise.allSettled([first.end(), second.end()]);
         }
     }, 20000);
 });
