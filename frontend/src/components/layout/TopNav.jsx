@@ -8,13 +8,11 @@ export default function TopNav() {
     const [searchTerm, setSearchTerm] = useState("");
     const navigate = useNavigate();
 
-    // This function runs when Enter is pressed or the search icon is clicked
     const handleSearch = (e) => {
         if (e.key === "Enter" || e.type === "click") {
             const cleanedSearch = searchTerm.trim().toLowerCase();
 
             if (cleanedSearch) {
-                // Safely encode special characters for desktop search as well
                 navigate(`/explore?search=${encodeURIComponent(cleanedSearch)}`);
             }
         }
@@ -26,7 +24,7 @@ export default function TopNav() {
                 <div className="top-nav-logo">
                     <img src={rioLogo} alt="Rio Cinema Logo" />
                 </div>
-                <nav className="top-nav-links">
+                <nav className="top-nav-links" aria-label="Primary navigation">
                     <NavLink
                         to="/"
                         className={({ isActive }) => (isActive ? "top-link active" : "top-link")}
@@ -38,6 +36,12 @@ export default function TopNav() {
                         className={({ isActive }) => (isActive ? "top-link active" : "top-link")}
                     >
                         Explore
+                    </NavLink>
+                    <NavLink
+                        to="/admin"
+                        className={({ isActive }) => (isActive ? "top-link active" : "top-link")}
+                    >
+                        Admin
                     </NavLink>
                 </nav>
             </div>

@@ -8,6 +8,7 @@ const databaseRequired = process.env.DATABASE_REQUIRED !== 'false';
 const components = [
     ['frontend', 'Frontend Jest'],
     ['backend', 'Backend Jest'],
+    ['backend-db', 'Backend PostgreSQL'],
     ['booking', 'Booking Jest'],
     ['login', 'Login Jest'],
     ['payment', 'Payment Jest'],
@@ -28,12 +29,12 @@ function testCategory(test, component) {
     const file = String(test.filePath ?? '').replaceAll('\\', '/');
 
     const match = file.match(
-        /\/tests\/(unit|functional|integration|regression|e2e|schema)\//
+        /(?:^|\/)tests\/(unit|functional|integration|regression|e2e|schema|migrations)\//
     );
 
     if (match) return match[1];
     if (component === 'playwright') return 'e2e';
-    if (component === 'database') return 'schema';
+    if (component === 'backend-db') return 'integration';
 
     return 'unclassified';
 }
@@ -52,7 +53,7 @@ const groups = [];
 let incomplete = false;
 
 for (const [id, label] of components) {
-    if (id === 'database' && !databaseRequired) {
+    if ((id === 'database' || id === 'backend-db') && !databaseRequired) {
         groups.push({
             id,
             label,
@@ -93,6 +94,17 @@ for (const [id, label] of components) {
             throw new Error('Invalid CTRF report');
         }
 
+        const reportedTotal = document.results.summary?.tests;
+
+        if (
+            Number.isInteger(reportedTotal) &&
+            reportedTotal !== document.results.tests.length
+        ) {
+            throw new Error(
+                'CTRF summary does not match individual test results'
+            );
+        }
+
         const tests = document.results.tests.map(test => ({
             ...test,
             name: `${label}: ${test.name}`,
@@ -104,11 +116,32 @@ for (const [id, label] of components) {
             category: testCategory(test, id)
         }));
 
-        const state = tests.length > 0
-            ? 'reported'
-            : 'empty report';
+        const unexpectedSkips =
+            databaseRequired &&
+            (id === 'database' || id === 'backend-db') &&
+            tests.some(test =>
+                test.status === 'skipped' ||
+                test.status === 'pending'
+            );
 
-        if (tests.length === 0) {
+        const unexpectedStatuses = tests.some(test =>
+            !['passed', 'failed', 'skipped', 'pending'].includes(test.status)
+        );
+
+        const state =
+            tests.length === 0
+                ? 'empty report'
+                : unexpectedSkips
+                    ? 'unexpected skipped tests'
+                    : unexpectedStatuses
+                        ? 'unexpected test status'
+                        : 'reported';
+
+        if (
+            tests.length === 0 ||
+            unexpectedSkips ||
+            unexpectedStatuses
+        ) {
             incomplete = true;
         }
 
@@ -359,8 +392,9 @@ const html = `<!doctype html>
     ${incomplete
         ? `
             <p class="notice">
-                Some expected test reports are missing, empty or invalid.
-                These components must not be treated as passing.
+                Some required test reports are missing, empty, invalid, or contain
+                tests that did not execute as required.
+                The test report is incomplete and must not be treated as passing.
             </p>
         `
         : ''

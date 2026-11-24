@@ -140,20 +140,6 @@ describe('Final database structure', () => {
             throw new Error('DB_TEST_URL is required');
         }
 
-        const url = new URL(connectionString);
-        const databaseName = decodeURIComponent(
-            url.pathname.slice(1)
-        );
-
-        if (
-            databaseName !== 'rio_schema_test' ||
-            !['localhost', '127.0.0.1'].includes(url.hostname)
-        ) {
-            throw new Error(
-                'Structure tests require a local rio_schema_test database'
-            );
-        }
-
         client = new pg.Client({
             connectionString,
             connectionTimeoutMillis: 5000

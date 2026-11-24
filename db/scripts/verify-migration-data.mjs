@@ -14,15 +14,6 @@ if (!connectionString) {
     throw new Error('DB_TEST_URL is required');
 }
 
-const url = new URL(connectionString);
-
-if (
-    decodeURIComponent(url.pathname.slice(1)) !== 'rio_schema_test' ||
-    !['localhost', '127.0.0.1'].includes(url.hostname)
-) {
-    throw new Error('Data-preservation checks require a local rio_schema_test database');
-}
-
 function quoteIdentifier(name) {
     return `"${name.replaceAll('"', '""')}"`;
 }

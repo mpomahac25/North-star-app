@@ -1,10 +1,10 @@
-import { Home, Compass, ShoppingCart, User } from "lucide-react";
+import { Home, Compass, ShoppingCart, ShieldCheck, User } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import "./BottomNav.css";
 
 export default function BottomNav() {
     return (
-        <nav className="bottom-nav">
+        <nav className="bottom-nav" aria-label="Mobile navigation">
             <NavLink to="/" className="nav-link-wrapper">
                 {({ isActive }) => (
                     <div className={`nav-item ${isActive ? "active" : ""}`}>
@@ -28,6 +28,15 @@ export default function BottomNav() {
                     <div className={`nav-item ${isActive ? "active" : ""}`}>
                         <ShoppingCart size={20} fill={isActive ? "currentColor" : "none"} />
                         <span>Cart</span>
+                    </div>
+                )}
+            </NavLink>
+
+            <NavLink to="/admin" className="nav-link-wrapper">
+                {({ isActive }) => (
+                    <div className={`nav-item ${isActive ? "active" : ""}`}>
+                        <ShieldCheck size={20} fill={isActive ? "currentColor" : "none"} />
+                        <span>Admin</span>
                     </div>
                 )}
             </NavLink>
