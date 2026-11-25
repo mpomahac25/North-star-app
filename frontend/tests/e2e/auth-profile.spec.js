@@ -67,6 +67,9 @@ test.describe("Header authentication controls", () => {
       "viewer",
     );
     await header.getByRole("button", { name: "Sign out" }).click();
+    const logoutDialog = page.getByRole("dialog", { name: "Sign out?" });
+    await expect(logoutDialog).toBeVisible();
+    await logoutDialog.getByRole("button", { name: "Sign out" }).click();
     await expect(header.getByRole("link", { name: "Sign in" })).toBeVisible();
     await expect(page.locator(".desktop-greeting")).toHaveCount(0);
   });
@@ -95,8 +98,11 @@ test.describe("Header authentication controls", () => {
     await expect(
       page.getByRole("heading", { name: "Create your account" }),
     ).toBeVisible();
+    await expect(page.getByLabel("Username")).toBeVisible();
+    await expect(page.getByLabel("Email")).toBeVisible();
+    await expect(page.getByLabel("Password")).toBeVisible();
     await expect(
-      page.getByText(/email and password sign-up is coming/i),
-    ).toBeVisible();
+      page.getByRole("link", { name: "Sign up with Google" }),
+    ).toHaveAttribute("href", "/api/auth/google");
   });
 });
