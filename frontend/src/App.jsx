@@ -3,6 +3,9 @@ import HomePage from "./pages/HomePage";
 import ExplorePage from "./pages/ExplorePage";
 import DetailsPage from "./pages/DetailsPage";
 import AdminPage from "./pages/AdminPage";
+import CheckoutPage from "./pages/CheckoutPage";
+import PaymentSuccessPage from "./pages/PaymentSuccessPage";
+import PaymentCancelPage from "./pages/PaymentCancelPage";
 import TopNav from "./components/layout/TopNav";
 import BottomNav from "./components/layout/BottomNav";
 
@@ -16,6 +19,9 @@ export default function App() {
                     <Route path="/explore" element={<ExplorePage />} />
                     <Route path="/details/:id" element={<DetailsPage />} />
                     <Route path="/admin" element={<AdminPage />} />
+                    <Route path="/checkout" element={<CheckoutPage />} />
+                    <Route path="/checkout/success" element={<PaymentSuccessPage />} />
+                    <Route path="/checkout/cancel" element={<PaymentCancelPage />} />
                     <Route
                         path="/seats/:id"
                         element={

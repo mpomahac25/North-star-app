@@ -242,3 +242,30 @@ export async function deleteAdminScreening(id) {
         method: "DELETE",
     });
 }
+
+export async function createPaymentCheckoutSession(bookingId) {
+    const numericBookingId = Number(bookingId);
+
+    if (!Number.isInteger(numericBookingId) || numericBookingId < 1) {
+        throw new Error("A valid numeric Booking ID is required.");
+    }
+
+    return apiRequest("/api/payments/checkout-sessions", {
+        method: "POST",
+        body: JSON.stringify({
+            bookingId: numericBookingId,
+        }),
+    });
+}
+
+export async function fetchPaymentSessionStatus(sessionId) {
+    const trimmedSessionId = typeof sessionId === "string" ? sessionId.trim() : "";
+
+    if (!trimmedSessionId) {
+        throw new Error("Missing Stripe checkout session ID.");
+    }
+
+    return apiRequest(
+        `/api/payments/checkout-sessions/${encodeURIComponent(trimmedSessionId)}/status`,
+    );
+}
