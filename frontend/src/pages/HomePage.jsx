@@ -4,7 +4,7 @@ import { Search, MapPin, Star, ArrowUpRight } from "lucide-react";
 import rioLogo from "../assets/rio-logo.png";
 import "./HomePage.css";
 
-export default function HomePage() {
+export default function HomePage({ isLoggedIn, nickname }) {
     const [searchTerm, setSearchTerm] = useState("");
     const [featuredMovies, setFeaturedMovies] = useState([]);
     const [isLoadingMovies, setIsLoadingMovies] = useState(true);
@@ -74,15 +74,17 @@ export default function HomePage() {
     return (
         <div className="home-container">
             {/* Mobile Header */}
-            <header className="home-header mobile-only">
-                <div className="header-text">
-                    <span className="greeting">Welcome Back,</span>
-                    <h1 className="username">Kakaroto</h1>
-                </div>
-                <div className="avatar">
-                    <img src="https://i.pravatar.cc/150?img=12" alt="Profile avatar" />
-                </div>
-            </header>
+            {isLoggedIn && (
+                <header className="home-header mobile-only">
+                    <div className="header-text">
+                        <span className="greeting">Welcome Back,</span>
+                        <h1 className="username">{nickname}</h1>
+                    </div>
+                    <div className="avatar">
+                        <img src="https://i.pravatar.cc/150?img=12" alt="Profile avatar" />
+                    </div>
+                </header>
+            )}
 
             {/* Mobile Search Bar */}
             <div className="search-bar mobile-only">
@@ -102,10 +104,12 @@ export default function HomePage() {
             </div>
 
             {/* Desktop Greeting */}
-            <div className="desktop-greeting desktop-only">
-                <span className="greeting">Welcome Back,</span>
-                <h1 className="username">Kakaroto</h1>
-            </div>
+            {isLoggedIn && (
+                <div className="desktop-greeting desktop-only">
+                    <span className="greeting">Welcome Back,</span>
+                    <h1 className="username">{nickname}</h1>
+                </div>
+            )}
 
             {/* Featured Movies Section */}
             <section className="section-coming-soon">

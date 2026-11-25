@@ -1,5 +1,25 @@
 # React + Vite
 
+## End-to-end tests
+
+Playwright starts the frontend, backend, and login service on ports `3100`,
+`3101`, and `3103`. Authentication E2E tests use the real services and a
+dedicated PostgreSQL database named `rio_e2e_test`; they never use
+`rio_theaters`. The database connection uses `POSTGRES_USER`,
+`POSTGRES_PASSWORD`, and `POSTGRES_HOST_PORT` from the root `.env` file.
+
+With the project PostgreSQL container running, create and migrate the E2E
+database once (replace `rio` if `POSTGRES_USER` has a different value):
+
+```powershell
+docker compose exec postgres psql -U rio -d postgres -c "CREATE DATABASE rio_e2e_test;"
+docker compose --profile tools run --rm -e FLYWAY_URL=jdbc:postgresql://postgres:5432/rio_e2e_test flyway migrate
+pnpm --dir frontend test:e2e
+```
+
+The test account created by the auth flow is removed after its test. Google
+OAuth is not contacted by these tests.
+
 This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
 
 Currently, two official plugins are available:

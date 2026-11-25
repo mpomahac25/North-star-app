@@ -21,8 +21,6 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
-      - ./db/migrations/V002__payment.sql:/docker-entrypoint-initdb.d/02-payment.sql:ro
-      - ./db/migrations/V003__movie_imdb_id.sql:/docker-entrypoint-initdb.d/03-movie-imdb-id.sql:ro
 
     # Expose PostgreSQL only to the local host
     ports:
@@ -80,6 +78,8 @@ services:
     depends_on:
       backend:
         condition: service_healthy
+      login:
+        condition: service_started
 
   # Main backend API
   backend:
@@ -95,8 +95,10 @@ services:
       <<: *db-environment
       BACKEND_PORT: ${BACKEND_PORT:-3001}
       MOVIES_API_URL: http://movies:${MOVIES_API_PORT:-3005}
+      LOGIN_SERVICE_URL: http://login:${LOGIN_PORT:-3003}
+      ENCRYPTION_KEY: ${ENCRYPTION_KEY:-}
 
-    # Wait until the database is healthy before starting
+    # Wait until the database and movie dependency are healthy before starting
     depends_on:
       postgres:
         condition: service_healthy
@@ -133,12 +135,17 @@ services:
       - "127.0.0.1:${LOGIN_PORT:-3003}:${LOGIN_PORT:-3003}"
 
     environment:
-      <<: *db-environment
       LOGIN_PORT: ${LOGIN_PORT:-3003}
+      BACKEND_URL: http://backend:${BACKEND_PORT:-3001}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://localhost:3000/api/auth/google/callback}
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
 
-    # Wait until the database is healthy before starting
+    # Wait until the backend persistence API is healthy before starting
     depends_on:
-      postgres:
+      backend:
         condition: service_healthy
 
   # Payment microservice
