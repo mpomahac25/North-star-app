@@ -192,6 +192,28 @@ jobs:
     name: Playwright E2E
     runs-on: ubuntu-latest
 
+    env:
+      E2E_DB_HOST: 127.0.0.1
+      E2E_DB_PORT: 5432
+      E2E_DB_NAME: rio_e2e_test
+      E2E_DB_USER: rio
+      E2E_DB_PASSWORD: ci_e2e_test_password
+
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: rio_e2e_test
+          POSTGRES_USER: rio
+          POSTGRES_PASSWORD: ci_e2e_test_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U rio -d rio_e2e_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -209,9 +231,14 @@ jobs:
           cache-dependency-path: |
             frontend/pnpm-lock.yaml
             backend/pnpm-lock.yaml
+            services/login/pnpm-lock.yaml
 
       - name: Install backend dependencies
         working-directory: backend
+        run: pnpm install --frozen-lockfile
+
+      - name: Install login service dependencies
+        working-directory: services/login
         run: pnpm install --frozen-lockfile
 
       - name: Install frontend dependencies
@@ -221,6 +248,22 @@ jobs:
       - name: Install Chromium
         working-directory: frontend
         run: pnpm exec playwright install --with-deps chromium
+
+      - name: Apply database migrations to the E2E database
+        run: |
+          docker run --rm \
+            --network host \
+            --mount "type=bind,source=$GITHUB_WORKSPACE/db/migrations,target=/flyway/sql,readonly" \
+            -e FLYWAY_URL=jdbc:postgresql://127.0.0.1:5432/rio_e2e_test \
+            -e FLYWAY_USER=rio \
+            -e FLYWAY_PASSWORD=ci_e2e_test_password \
+            flyway/flyway:13.12.1 \
+            -locations=filesystem:/flyway/sql \
+            -schemas=public \
+            -defaultSchema=public \
+            -baselineOnMigrate=false \
+            -cleanDisabled=true \
+            migrate
 
       - name: Run Playwright tests
         working-directory: frontend
