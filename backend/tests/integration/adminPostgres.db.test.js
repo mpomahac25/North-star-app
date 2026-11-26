@@ -8,9 +8,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, jest, test } from "@j
 const databaseUrl = process.env.DB_TEST_URL;
 
 if (!databaseUrl) {
-    throw new Error(
-        "DB_TEST_URL is required to run PostgreSQL integration tests.",
-    );
+    throw new Error("DB_TEST_URL is required to run PostgreSQL integration tests.");
 }
 
 const { Pool } = pg;
@@ -32,15 +30,10 @@ jest.unstable_mockModule("../../db/pool.js", () => ({
     pool: databasePool,
 }));
 
-const { listAdminSales, listAdminScreenings } = await import(
-    "../../dao/admin/adminReadDao.js"
-);
-const {
-    deleteAdminScreeningById,
-    ensureAdminReferenceData,
-    insertAdminScreening,
-    updateAdminScreeningById,
-} = await import("../../dao/admin/adminWriteDao.js");
+const { listAdminSales, listAdminScreenings } = await import("../../dao/admin/adminReadDao.js");
+
+const { deleteAdminScreeningById, insertAdminScreening, updateAdminScreeningById } =
+    await import("../../dao/admin/adminWriteDao.js");
 
 function futureIsoDate(daysAhead = 30) {
     const date = new Date(Date.now() + daysAhead * 24 * 60 * 60 * 1000);
@@ -57,9 +50,7 @@ describe("Admin PostgreSQL integration tests", () => {
         await adminPool.query(`CREATE SCHEMA "${schemaName}"`);
         schemaCreated = true;
 
-        const migrationsPath = fileURLToPath(
-            new URL("../../../db/migrations/", import.meta.url),
-        );
+        const migrationsPath = fileURLToPath(new URL("../../../db/migrations/", import.meta.url));
 
         const migrationFiles = (await readdir(migrationsPath))
             .filter((file) => /^V\d+__.*\.sql$/.test(file))
@@ -72,17 +63,39 @@ describe("Admin PostgreSQL integration tests", () => {
         const client = await databasePool.connect();
         try {
             for (const file of migrationFiles) {
-                const migrationSql = await readFile(
-                    path.join(migrationsPath, file),
-                    "utf8",
-                );
+                const migrationSql = await readFile(path.join(migrationsPath, file), "utf8");
                 await client.query(migrationSql);
             }
+
+            await client.query(`
+                INSERT INTO theatres (id, name, city, address, timezone) VALUES
+                    (1, 'Rio Cinema Oulu', 'Oulu', 'Hallituskatu 11', 'Europe/Helsinki'),
+                    (2, 'Rio Cinema Tampere', 'Tampere', 'Hämeenkatu 14', 'Europe/Helsinki')
+                ON CONFLICT DO NOTHING;
+
+                INSERT INTO rooms (theatre_id, name, capacity)
+                SELECT t.id, r.name, r.capacity
+                FROM theatres t
+                CROSS JOIN (VALUES ('Room 1', 100), ('Room 2', 200)) AS r(name, capacity)
+                WHERE LOWER(t.city) IN ('oulu', 'tampere')
+                  AND NOT EXISTS (
+                      SELECT 1 FROM rooms existing
+                      WHERE existing.theatre_id = t.id AND existing.name = r.name
+                  );
+
+                INSERT INTO users (username, email, password_hash)
+                VALUES ('owner', 'owner@riocinema.fi', 'SYSTEM_OWNER_RESERVED')
+                ON CONFLICT DO NOTHING;
+
+                INSERT INTO order_statuses (name) VALUES ('confirmed')
+                ON CONFLICT DO NOTHING;
+
+                INSERT INTO reservation_statuses (name) VALUES ('reserved'), ('cancelled')
+                ON CONFLICT DO NOTHING;
+            `);
         } finally {
             client.release();
         }
-
-        await ensureAdminReferenceData(databasePool);
 
         const movieRes = await databasePool.query(
             `INSERT INTO movies (imdb_id, title, duration_minutes)
@@ -112,9 +125,10 @@ describe("Admin PostgreSQL integration tests", () => {
             );
             const ownerOrderIds = ownerOrdersRes.rows.map((r) => r.order_id);
 
-            await databasePool.query(`DELETE FROM reservations WHERE screening_id = ANY($1::int[])`, [
-                createdScreeningIds,
-            ]);
+            await databasePool.query(
+                `DELETE FROM reservations WHERE screening_id = ANY($1::int[])`,
+                [createdScreeningIds],
+            );
             if (ownerOrderIds.length > 0) {
                 await databasePool.query(`DELETE FROM orders WHERE id = ANY($1::int[])`, [
                     ownerOrderIds,
@@ -138,25 +152,6 @@ describe("Admin PostgreSQL integration tests", () => {
         }
     });
 
-    test("ensureAdminReferenceData idempotently creates Oulu and Tampere with Room 1 (100) and Room 2 (200)", async () => {
-        await ensureAdminReferenceData(databasePool);
-
-        const roomsRes = await databasePool.query(
-            `SELECT t.city, r.name, r.capacity
-             FROM rooms r
-             JOIN theatres t ON t.id = r.theatre_id
-             WHERE LOWER(t.city) IN ('oulu', 'tampere')
-             ORDER BY t.city ASC, r.name ASC`,
-        );
-
-        expect(roomsRes.rows).toEqual([
-            { city: "Oulu", name: "Room 1", capacity: 100 },
-            { city: "Oulu", name: "Room 2", capacity: 200 },
-            { city: "Tampere", name: "Room 1", capacity: 100 },
-            { city: "Tampere", name: "Room 2", capacity: 200 },
-        ]);
-    });
-
     test("insertAdminScreening persists screening, reserves Seat #1 for owner, and excludes it from sales", async () => {
         const screeningDate = futureIsoDate(31);
 
@@ -167,8 +162,6 @@ describe("Admin PostgreSQL integration tests", () => {
                 roomName: "Room 1",
                 date: screeningDate,
                 startTime: "18:00",
-                isFirstScreening: true,
-                ticketPrice: 14.95,
             },
             databasePool,
         );
@@ -208,6 +201,51 @@ describe("Admin PostgreSQL integration tests", () => {
         });
     });
 
+    test("insertAdminScreening applies +15% premiere automatically on first screening and standard price after", async () => {
+        const screeningDate = futureIsoDate(31);
+
+        const result = await insertAdminScreening(
+            {
+                movieId: testMovieId,
+                city: "Oulu",
+                roomName: "Room 1",
+                date: screeningDate,
+                startTime: "18:00",
+            },
+            databasePool,
+        );
+
+        expect(result.error).toBeUndefined();
+        expect(result.screening).toMatchObject({
+            movieId: testMovieId,
+            movieTitle: "[TEST] Rio Admin Integration Movie",
+            city: "Oulu",
+            roomName: "Room 1",
+            capacity: 100,
+            date: screeningDate,
+            startTime: "18:00",
+            ticketPrice: 14.95,
+            isFirstScreening: true,
+        });
+        createdScreeningIds.push(result.screening.id);
+
+        const second = await insertAdminScreening(
+            {
+                movieId: testMovieId,
+                city: "Tampere",
+                roomName: "Room 2",
+                date: screeningDate,
+                startTime: "19:00",
+            },
+            databasePool,
+        );
+        expect(second.screening).toMatchObject({
+            ticketPrice: 13.0,
+            isFirstScreening: false,
+        });
+        createdScreeningIds.push(second.screening.id);
+    });
+
     test("insertAdminScreening enforces room occupancy and allows adjacent occupancy windows or other rooms", async () => {
         const screeningDate = futureIsoDate(32);
 
@@ -218,8 +256,6 @@ describe("Admin PostgreSQL integration tests", () => {
                 roomName: "Room 1",
                 date: screeningDate,
                 startTime: "16:00",
-                isFirstScreening: false,
-                ticketPrice: 13.0,
             },
             databasePool,
         );
@@ -232,8 +268,6 @@ describe("Admin PostgreSQL integration tests", () => {
                 roomName: "Room 1",
                 date: screeningDate,
                 startTime: "17:30",
-                isFirstScreening: false,
-                ticketPrice: 13.0,
             },
             databasePool,
         );
@@ -246,12 +280,9 @@ describe("Admin PostgreSQL integration tests", () => {
                 roomName: "Room 1",
                 date: screeningDate,
                 startTime: "18:44",
-                isFirstScreening: false,
-                ticketPrice: 13.0,
             },
             databasePool,
         );
-
         expect(insufficientTurnaround).toEqual({
             error: "SCREENING_OVERLAP",
         });
@@ -263,12 +294,9 @@ describe("Admin PostgreSQL integration tests", () => {
                 roomName: "Room 1",
                 date: screeningDate,
                 startTime: "18:45",
-                isFirstScreening: false,
-                ticketPrice: 13.0,
             },
             databasePool,
         );
-
         expect(nextAvailable.error).toBeUndefined();
         createdScreeningIds.push(nextAvailable.screening.id);
 
@@ -279,8 +307,6 @@ describe("Admin PostgreSQL integration tests", () => {
                 roomName: "Room 2",
                 date: screeningDate,
                 startTime: "16:30",
-                isFirstScreening: false,
-                ticketPrice: 13.0,
             },
             databasePool,
         );
@@ -288,7 +314,7 @@ describe("Admin PostgreSQL integration tests", () => {
         createdScreeningIds.push(otherRoom.screening.id);
     });
 
-    test("updateAdminScreeningById updates screening and deleteAdminScreeningById enforces sales protection", async () => {
+    test("updateAdminScreeningById updates screening, enforces room capacity, and enforces sales protection", async () => {
         const screeningDate = futureIsoDate(33);
 
         const created = await insertAdminScreening(
@@ -298,8 +324,6 @@ describe("Admin PostgreSQL integration tests", () => {
                 roomName: "Room 2",
                 date: screeningDate,
                 startTime: "15:00",
-                isFirstScreening: false,
-                ticketPrice: 13.0,
             },
             databasePool,
         );
@@ -314,8 +338,6 @@ describe("Admin PostgreSQL integration tests", () => {
                 roomName: "Room 2",
                 date: screeningDate,
                 startTime: "15:30",
-                isFirstScreening: true,
-                ticketPrice: 14.95,
             },
             databasePool,
         );
@@ -365,6 +387,28 @@ describe("Admin PostgreSQL integration tests", () => {
         expect(blockedDelete).toEqual({ error: "SCREENING_HAS_SALES" });
 
         await databasePool.query(`DELETE FROM reservations WHERE order_id = $1`, [orderId]);
+
+        await databasePool.query(
+            `INSERT INTO reservations (order_id, screening_id, seat_row, seat_number, status_id, price)
+             SELECT $1, $2, 2 + (g / 20), 1 + (g % 20), $3, 14.95
+             FROM generate_series(0, 104) AS g`,
+            [orderId, screeningId, reservedRes.rows[0].id],
+        );
+
+        const blockedMove = await updateAdminScreeningById(
+            screeningId,
+            {
+                movieId: testMovieId,
+                city: "Oulu",
+                roomName: "Room 1",
+                date: screeningDate,
+                startTime: "15:30",
+            },
+            databasePool,
+        );
+        expect(blockedMove).toEqual({ error: "ROOM_CAPACITY_EXCEEDED" });
+
+        await databasePool.query(`DELETE FROM reservations WHERE order_id = $1`, [orderId]);
         await databasePool.query(`DELETE FROM orders WHERE id = $1`, [orderId]);
         createdOrderIds.length = 0;
 
@@ -384,8 +428,6 @@ describe("Admin PostgreSQL integration tests", () => {
             roomName: "Room 1",
             date: screeningDate,
             startTime: "18:00",
-            isFirstScreening: false,
-            ticketPrice: 13.0,
         };
 
         const results = await Promise.all([
@@ -394,15 +436,11 @@ describe("Admin PostgreSQL integration tests", () => {
         ]);
 
         const created = results.filter((result) => result.screening);
-        const conflicts = results.filter(
-            (result) => result.error === "SCREENING_OVERLAP",
-        );
+        const conflicts = results.filter((result) => result.error === "SCREENING_OVERLAP");
 
         expect(created).toHaveLength(1);
         expect(conflicts).toHaveLength(1);
 
-        createdScreeningIds.push(
-            ...created.map((result) => result.screening.id),
-        );
+        createdScreeningIds.push(...created.map((result) => result.screening.id));
     });
 });

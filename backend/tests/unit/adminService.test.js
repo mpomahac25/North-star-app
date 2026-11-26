@@ -21,7 +21,6 @@ jest.unstable_mockModule("../../dao/admin/adminWriteDao.js", () => mockWriteDao)
 jest.unstable_mockModule("../../services/movieCatalogService.js", () => mockCatalog);
 
 const {
-    AdminServiceError,
     createAdminScreening,
     deleteAdminScreening,
     getAdminSales,
@@ -48,9 +47,16 @@ describe("adminService unit tests", () => {
         await expect(getAdminScreenings()).resolves.toEqual([{ id: 1, city: "Oulu" }]);
     });
 
-    test("createAdminScreening normalizes city/room and sets standard 13.00 EUR price", async () => {
+    test("createAdminScreening normalizes city/room and delegates premiere pricing to DAO", async () => {
         const date = futureIsoDate(10);
-        const created = { id: 12, movieId: 3, city: "Oulu", roomName: "Room 1", ticketPrice: 13.0 };
+        const created = {
+            id: 12,
+            movieId: 3,
+            city: "Oulu",
+            roomName: "Room 1",
+            ticketPrice: 14.95,
+            isFirstScreening: true,
+        };
         mockWriteDao.insertAdminScreening.mockResolvedValue({ screening: created });
 
         const result = await createAdminScreening({
@@ -59,7 +65,6 @@ describe("adminService unit tests", () => {
             roomName: " room 1 ",
             date,
             startTime: "18:30",
-            isFirstScreening: false,
         });
 
         expect(mockWriteDao.insertAdminScreening).toHaveBeenCalledWith({
@@ -68,16 +73,14 @@ describe("adminService unit tests", () => {
             roomName: "Room 1",
             date,
             startTime: "18:30",
-            isFirstScreening: false,
-            ticketPrice: 13.0,
         });
         expect(result).toEqual(created);
     });
 
-    test("createAdminScreening applies +15% premiere price (14.95 EUR) when isFirstScreening is true", async () => {
+    test("createAdminScreening ignores client-supplied premiere or price overrides", async () => {
         const date = futureIsoDate(15);
         mockWriteDao.insertAdminScreening.mockResolvedValue({
-            screening: { id: 15, ticketPrice: 14.95, isFirstScreening: true },
+            screening: { id: 15, ticketPrice: 13.0, isFirstScreening: false },
         });
 
         await createAdminScreening({
@@ -87,16 +90,16 @@ describe("adminService unit tests", () => {
             date,
             startTime: "20:00",
             isFirstScreening: true,
+            ticketPrice: 1.0,
         });
 
-        expect(mockWriteDao.insertAdminScreening).toHaveBeenCalledWith(
-            expect.objectContaining({
-                city: "Tampere",
-                roomName: "Room 2",
-                isFirstScreening: true,
-                ticketPrice: 14.95,
-            }),
-        );
+        expect(mockWriteDao.insertAdminScreening).toHaveBeenCalledWith({
+            movieId: 7,
+            city: "Tampere",
+            roomName: "Room 2",
+            date,
+            startTime: "20:00",
+        });
     });
 
     test.each([
@@ -203,6 +206,7 @@ describe("adminService unit tests", () => {
         ["MOVIE_NOT_FOUND", 404],
         ["ROOM_NOT_FOUND", 404],
         ["SCREENING_OVERLAP", 409],
+        ["ROOM_CAPACITY_EXCEEDED", 409],
         ["UNEXPECTED_DB_FLAG", 500],
     ])("createAdminScreening maps DAO error %s to HTTP %i", async (daoError, expectedStatus) => {
         mockWriteDao.insertAdminScreening.mockResolvedValue({ error: daoError });
@@ -221,20 +225,29 @@ describe("adminService unit tests", () => {
         });
     });
 
-    test("updateAdminScreening maps SCREENING_NOT_FOUND to 404 and returns updated record on success", async () => {
+    test("updateAdminScreening maps SCREENING_NOT_FOUND, ROOM_CAPACITY_EXCEEDED, and returns updated record on success", async () => {
         const payload = {
             movieId: 2,
             city: "Tampere",
             roomName: "Room 1",
             date: futureIsoDate(20),
             startTime: "17:15",
-            isFirstScreening: false,
         };
 
-        mockWriteDao.updateAdminScreeningById.mockResolvedValueOnce({ error: "SCREENING_NOT_FOUND" });
+        mockWriteDao.updateAdminScreeningById.mockResolvedValueOnce({
+            error: "SCREENING_NOT_FOUND",
+        });
         await expect(updateAdminScreening(999, payload)).rejects.toMatchObject({
             status: 404,
             code: "SCREENING_NOT_FOUND",
+        });
+
+        mockWriteDao.updateAdminScreeningById.mockResolvedValueOnce({
+            error: "ROOM_CAPACITY_EXCEEDED",
+        });
+        await expect(updateAdminScreening(5, payload)).rejects.toMatchObject({
+            status: 409,
+            code: "ROOM_CAPACITY_EXCEEDED",
         });
 
         const updated = { id: 5, ...payload, ticketPrice: 13.0 };
@@ -243,7 +256,9 @@ describe("adminService unit tests", () => {
     });
 
     test("deleteAdminScreening maps SCREENING_HAS_SALES to 409 and returns deleted object on success", async () => {
-        mockWriteDao.deleteAdminScreeningById.mockResolvedValueOnce({ error: "SCREENING_HAS_SALES" });
+        mockWriteDao.deleteAdminScreeningById.mockResolvedValueOnce({
+            error: "SCREENING_HAS_SALES",
+        });
         await expect(deleteAdminScreening(8)).rejects.toMatchObject({
             status: 409,
             code: "SCREENING_HAS_SALES",

@@ -29,6 +29,15 @@ function formatDateLabel(isoDate) {
     return formatDate(isoDate) || isoDate;
 }
 
+function getLocalIsoDate(daysOffset = 0) {
+    const date = new Date();
+    date.setDate(date.getDate() + daysOffset);
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const day = String(date.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+}
+
 function calculateShowtimeSchedule(startTime) {
     const [hoursStr, minsStr] = (startTime || "18:00").split(":");
     const movieMinutes = Number(hoursStr) * 60 + Number(minsStr);
@@ -74,13 +83,15 @@ export default function AdminPage() {
     const [selectedMovieId, setSelectedMovieId] = useState(1);
     const [selectedLocation, setSelectedLocation] = useState("Oulu");
     const [selectedRoom, setSelectedRoom] = useState("Room 1");
-    const [screeningDate, setScreeningDate] = useState("2026-11-16");
+    const [screeningDate, setScreeningDate] = useState(() => getLocalIsoDate(0));
     const [screeningStartTime, setScreeningStartTime] = useState("18:00");
-    const [isFirstScreening, setIsFirstScreening] = useState(false);
 
     const salesRef = useRef(null);
     const moviesRef = useRef(null);
     const scheduleFormRef = useRef(null);
+
+    const todayIso = getLocalIsoDate(0);
+    const tomorrowIso = getLocalIsoDate(1);
 
     useEffect(() => {
         let isMounted = true;
@@ -254,6 +265,13 @@ export default function AdminPage() {
         [screeningStartTime],
     );
 
+    const isAutoPremiere = useMemo(() => {
+        const movieIdNum = Number(selectedMovieId);
+        return !scheduledScreenings.some(
+            (s) => s.movieId === movieIdNum && s.id !== editingScreeningId,
+        );
+    }, [scheduledScreenings, selectedMovieId, editingScreeningId]);
+
     const refreshAdminData = async () => {
         const data = await fetchAdminDashboardInitialData();
         setLibraryMovies(data.libraryMovies);
@@ -305,7 +323,7 @@ export default function AdminPage() {
             capacity: chosenRoom.capacity,
             date: screeningDate,
             startTime: screeningStartTime,
-            isFirstScreening,
+            isFirstScreening: isAutoPremiere,
         };
 
         setIsSubmittingScreening(true);
@@ -338,7 +356,6 @@ export default function AdminPage() {
         setSelectedRoom(screening.roomName);
         setScreeningDate(screening.date);
         setScreeningStartTime(screening.startTime);
-        setIsFirstScreening(Boolean(screening.isFirstScreening));
         scheduleFormRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
     };
 
@@ -357,7 +374,7 @@ export default function AdminPage() {
 
     const handleCancelEdit = () => {
         setEditingScreeningId(null);
-        setIsFirstScreening(false);
+        setScreeningDate(getLocalIsoDate(0));
     };
 
     return (
@@ -394,7 +411,9 @@ export default function AdminPage() {
                     <p className="admin-main-subtitle">
                         Your daily sales and screening schedule, in one place.
                     </p>
-                    <p className="admin-meta-caption">Example data · Today, 16.11.2026</p>
+                    <p className="admin-meta-caption">
+                        Live database · Today, {formatDateLabel(todayIso)}
+                    </p>
                 </div>
 
                 {statusBanner && (
@@ -460,7 +479,9 @@ export default function AdminPage() {
                                             onChange={(e) => setDateFilter(e.target.value)}
                                         >
                                             <option value="today">Today</option>
-                                            <option value="tomorrow">Tomorrow (17.11.2026)</option>
+                                            <option value="tomorrow">
+                                                Tomorrow ({formatDateLabel(tomorrowIso)})
+                                            </option>
                                             <option value="all">All Dates</option>
                                         </select>
                                         <ChevronDown size={16} className="admin-select-icon" />
@@ -896,25 +917,24 @@ export default function AdminPage() {
                                         <div className="admin-premiere-box">
                                             <div>
                                                 <p className="admin-premiere-title">
-                                                    First Screening Ever
+                                                    {isAutoPremiere
+                                                        ? "First Screening Ever (Automatic)"
+                                                        : "Standard Screening Pricing"}
                                                 </p>
                                                 <p className="admin-premiere-sub">
-                                                    +15% premiere surcharge
+                                                    {isAutoPremiere
+                                                        ? "+15% premiere surcharge (€14.95) · No prior screenings in database"
+                                                        : "Standard ticket price (€13.00) · Movie already has scheduled screenings"}
                                                 </p>
                                             </div>
 
-                                            <button
-                                                type="button"
-                                                role="switch"
-                                                aria-checked={isFirstScreening}
-                                                aria-label="First Screening Ever +15% premiere surcharge"
-                                                className={`admin-switch ${
-                                                    isFirstScreening ? "checked" : ""
+                                            <span
+                                                className={`admin-status-pill ${
+                                                    isAutoPremiere ? "pending" : "imported"
                                                 }`}
-                                                onClick={() => setIsFirstScreening((prev) => !prev)}
                                             >
-                                                <span className="admin-switch-thumb" />
-                                            </button>
+                                                {isAutoPremiere ? "+15% Premiere" : "Standard"}
+                                            </span>
                                         </div>
 
                                         <div className="admin-form-actions">

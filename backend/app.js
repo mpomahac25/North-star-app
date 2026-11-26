@@ -10,6 +10,7 @@ import { pool } from "./db/pool.js";
 import { createAuthPersistenceService } from "./services/authPersistenceService.js";
 import { createInternalAuthRouter } from "./routes/internalAuthRoutes.js";
 import { createAuthServiceProxy } from "./routes/authServiceProxy.js";
+import { requireAdmin } from "./middleware/requireAdmin.js";
 import {
   getNowShowingMovies,
   getComingSoonMovies,
@@ -402,6 +403,8 @@ app.post("/api/movies/import", async (req, res) => {
 });
 
 // --- ADMIN DASHBOARD ROUTES ---
+
+app.use("/api/admin", requireAdmin);
 
 app.get("/api/admin/sales", async (req, res) => {
   try {

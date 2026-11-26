@@ -7,7 +7,7 @@ export function authCookieOptions(maxAge) {
     httpOnly: true,
     secure: process.env.SESSION_COOKIE_SECURE === "true",
     sameSite: "Lax",
-    path: "/api/auth",
+    path: "/api",
     maxAge,
   };
 }

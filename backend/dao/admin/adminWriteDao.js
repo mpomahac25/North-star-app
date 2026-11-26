@@ -1,6 +1,7 @@
 import { pool } from "../../db/pool.js";
 
 const BASE_TICKET_PRICE = 13.0;
+const PREMIERE_TICKET_PRICE = 14.95;
 
 function isScreeningOverlapError(error) {
     return (
@@ -25,58 +26,9 @@ function mapScreeningRow(row) {
     };
 }
 
-export async function ensureAdminReferenceData(database = pool) {
-    const theatres = [
-        { name: "Rio Cinema Oulu", city: "Oulu", address: "Hallituskatu 11" },
-        { name: "Rio Cinema Tampere", city: "Tampere", address: "Hämeenkatu 14" },
-    ];
-
-    for (const theatre of theatres) {
-        await database.query(
-            `INSERT INTO theatres (name, city, address, timezone)
-             SELECT $1::varchar, $2::varchar, $3::varchar, 'Europe/Helsinki'
-             WHERE NOT EXISTS (
-                 SELECT 1 FROM theatres WHERE LOWER(city) = LOWER($2::varchar)
-             )`,
-            [theatre.name, theatre.city, theatre.address],
-        );
-
-        const theatreRes = await database.query(
-            `SELECT id FROM theatres WHERE LOWER(city) = LOWER($1::varchar) LIMIT 1`,
-            [theatre.city],
-        );
-        const theatreId = theatreRes.rows[0].id;
-
-        await database.query(
-            `INSERT INTO rooms (theatre_id, name, capacity)
-             VALUES ($1::integer, 'Room 1', 100), ($1::integer, 'Room 2', 200)
-             ON CONFLICT (theatre_id, name) DO NOTHING`,
-            [theatreId],
-        );
-    }
-
-    await database.query(
-        `INSERT INTO users (username, email, password_hash)
-         VALUES ('owner', 'owner@riocinema.fi', 'SYSTEM_OWNER_RESERVED')
-         ON CONFLICT (username) DO NOTHING`,
-    );
-
-    await database.query(
-        `INSERT INTO order_statuses (name)
-         VALUES ('confirmed')
-         ON CONFLICT (name) DO NOTHING`,
-    );
-
-    await database.query(
-        `INSERT INTO reservation_statuses (name)
-         VALUES ('reserved'), ('cancelled')
-         ON CONFLICT (name) DO NOTHING`,
-    );
-}
-
 async function resolveRoomAndWindow(client, { movieId, city, roomName, date, startTime }) {
     const roomRes = await client.query(
-        `SELECT r.id AS room_id, t.timezone
+        `SELECT r.id AS room_id, r.capacity AS room_capacity, t.timezone
          FROM rooms r
          JOIN theatres t ON t.id = r.theatre_id
          WHERE LOWER(t.city) = LOWER($1) AND LOWER(r.name) = LOWER($2)
@@ -88,7 +40,7 @@ async function resolveRoomAndWindow(client, { movieId, city, roomName, date, sta
         return { error: "ROOM_NOT_FOUND" };
     }
 
-    const { room_id: roomId, timezone } = roomRes.rows[0];
+    const { room_id: roomId, room_capacity: roomCapacity, timezone } = roomRes.rows[0];
     const localTimestamp = `${date} ${startTime}:00`;
 
     const windowRes = await client.query(
@@ -106,6 +58,7 @@ async function resolveRoomAndWindow(client, { movieId, city, roomName, date, sta
 
     return {
         roomId,
+        roomCapacity,
         startTs: windowRes.rows[0].start_ts,
         endTs: windowRes.rows[0].end_ts,
     };
@@ -134,12 +87,25 @@ async function findScreeningById(client, screeningId) {
     return result.rows[0] ? mapScreeningRow(result.rows[0]) : null;
 }
 
+async function countActiveSoldSeats(client, screeningId) {
+    const soldRes = await client.query(
+        `SELECT COUNT(*)::INTEGER AS sold_count
+         FROM reservations res
+         JOIN reservation_statuses rs ON rs.id = res.status_id
+         WHERE res.screening_id = $1
+           AND NOT (res.seat_row = 1 AND res.seat_number = 1)
+           AND rs.name <> 'cancelled'`,
+        [screeningId],
+    );
+
+    return soldRes.rows[0].sold_count;
+}
+
 export async function insertAdminScreening(data, database = pool) {
     const client = await database.connect();
 
     try {
         await client.query("BEGIN");
-        await ensureAdminReferenceData(client);
 
         const resolved = await resolveRoomAndWindow(client, data);
         if (resolved.error) {
@@ -147,15 +113,24 @@ export async function insertAdminScreening(data, database = pool) {
             return { error: resolved.error };
         }
 
+        const priorRes = await client.query(
+            `SELECT EXISTS (
+                SELECT 1 FROM screenings WHERE movie_id = $1
+            ) AS has_prior_screenings`,
+            [data.movieId],
+        );
+        const isFirstScreening = !priorRes.rows[0].has_prior_screenings;
+        const ticketPrice = isFirstScreening ? PREMIERE_TICKET_PRICE : BASE_TICKET_PRICE;
+
         const insertRes = await client.query(
             `INSERT INTO screenings (movie_id, room_id, start_time, end_time, ticket_price)
              VALUES ($1, $2, $3, $4, $5)
              RETURNING id`,
-            [data.movieId, resolved.roomId, resolved.startTs, resolved.endTs, data.ticketPrice],
+            [data.movieId, resolved.roomId, resolved.startTs, resolved.endTs, ticketPrice],
         );
         const screeningId = insertRes.rows[0].id;
 
-        // Reserve Seat #1 permanently for the owner
+        // Reserve Seat #1 permanently for the owner when owner account and statuses exist
         const ownerRes = await client.query(
             `SELECT id FROM users WHERE username = 'owner' LIMIT 1`,
         );
@@ -166,18 +141,24 @@ export async function insertAdminScreening(data, database = pool) {
             `SELECT id FROM reservation_statuses WHERE name = 'reserved' LIMIT 1`,
         );
 
-        const orderRes = await client.query(
-            `INSERT INTO orders (user_id, status_id)
-             VALUES ($1, $2)
-             RETURNING id`,
-            [ownerRes.rows[0].id, orderStatusRes.rows[0].id],
-        );
+        if (
+            ownerRes.rows.length > 0 &&
+            orderStatusRes.rows.length > 0 &&
+            resStatusRes.rows.length > 0
+        ) {
+            const orderRes = await client.query(
+                `INSERT INTO orders (user_id, status_id)
+                 VALUES ($1, $2)
+                 RETURNING id`,
+                [ownerRes.rows[0].id, orderStatusRes.rows[0].id],
+            );
 
-        await client.query(
-            `INSERT INTO reservations (order_id, screening_id, seat_row, seat_number, status_id, price)
-             VALUES ($1, $2, 1, 1, $3, 0.00)`,
-            [orderRes.rows[0].id, screeningId, resStatusRes.rows[0].id],
-        );
+            await client.query(
+                `INSERT INTO reservations (order_id, screening_id, seat_row, seat_number, status_id, price)
+                 VALUES ($1, $2, 1, 1, $3, 0.00)`,
+                [orderRes.rows[0].id, screeningId, resStatusRes.rows[0].id],
+            );
+        }
 
         const created = await findScreeningById(client, screeningId);
         await client.query("COMMIT");
@@ -200,7 +181,6 @@ export async function updateAdminScreeningById(screeningId, data, database = poo
 
     try {
         await client.query("BEGIN");
-        await ensureAdminReferenceData(client);
 
         const existing = await findScreeningById(client, screeningId);
         if (!existing) {
@@ -213,6 +193,26 @@ export async function updateAdminScreeningById(screeningId, data, database = poo
             await client.query("ROLLBACK");
             return { error: resolved.error };
         }
+
+        const soldCount = await countActiveSoldSeats(client, screeningId);
+        const maxGuestSeats = Math.max(0, resolved.roomCapacity - 1);
+        if (soldCount > maxGuestSeats) {
+            await client.query("ROLLBACK");
+            return { error: "ROOM_CAPACITY_EXCEEDED" };
+        }
+
+        const earlierRes = await client.query(
+            `SELECT EXISTS (
+                SELECT 1
+                FROM screenings
+                WHERE movie_id = $1
+                  AND id <> $2
+                  AND start_time <= $3
+            ) AS has_earlier_screenings`,
+            [data.movieId, screeningId, resolved.startTs],
+        );
+        const isFirstScreening = !earlierRes.rows[0].has_earlier_screenings;
+        const ticketPrice = isFirstScreening ? PREMIERE_TICKET_PRICE : BASE_TICKET_PRICE;
 
         await client.query(
             `UPDATE screenings
@@ -227,7 +227,7 @@ export async function updateAdminScreeningById(screeningId, data, database = poo
                 resolved.roomId,
                 resolved.startTs,
                 resolved.endTs,
-                data.ticketPrice,
+                ticketPrice,
                 screeningId,
             ],
         );
@@ -260,17 +260,8 @@ export async function deleteAdminScreeningById(screeningId, database = pool) {
             return { error: "SCREENING_NOT_FOUND" };
         }
 
-        const soldRes = await client.query(
-            `SELECT COUNT(*)::INTEGER AS sold_count
-             FROM reservations res
-             JOIN reservation_statuses rs ON rs.id = res.status_id
-             WHERE res.screening_id = $1
-               AND NOT (res.seat_row = 1 AND res.seat_number = 1)
-               AND rs.name <> 'cancelled'`,
-            [screeningId],
-        );
-
-        if (soldRes.rows[0].sold_count > 0) {
+        const soldCount = await countActiveSoldSeats(client, screeningId);
+        if (soldCount > 0) {
             await client.query("ROLLBACK");
             return { error: "SCREENING_HAS_SALES" };
         }

@@ -19,9 +19,6 @@ const VALID_ROOMS = new Map([
     ["room 2", "Room 2"],
 ]);
 
-const BASE_TICKET_PRICE = 13.0;
-const PREMIERE_TICKET_PRICE = 14.95; // +15% premiere surcharge
-
 export class AdminServiceError extends Error {
     constructor(message, status = 400, code = "ADMIN_VALIDATION_ERROR") {
         super(message);
@@ -77,17 +74,12 @@ function validateScreeningPayload(body) {
         );
     }
 
-    const isFirstScreening = Boolean(body?.isFirstScreening);
-    const ticketPrice = isFirstScreening ? PREMIERE_TICKET_PRICE : BASE_TICKET_PRICE;
-
     return {
         movieId,
         city,
         roomName,
         date,
         startTime,
-        isFirstScreening,
-        ticketPrice,
     };
 }
 
@@ -110,6 +102,12 @@ function mapDaoError(errorCode) {
                 "Cannot delete a screening that already has sold tickets.",
                 409,
                 "SCREENING_HAS_SALES",
+            );
+        case "ROOM_CAPACITY_EXCEEDED":
+            throw new AdminServiceError(
+                "Cannot move screening to a room with smaller capacity than tickets already sold.",
+                409,
+                "ROOM_CAPACITY_EXCEEDED",
             );
         default:
             throw new AdminServiceError("Could not process screening request.", 500, "ADMIN_ERROR");

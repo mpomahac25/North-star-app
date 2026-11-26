@@ -1,5 +1,4 @@
 import { pool } from "../../db/pool.js";
-import { ensureAdminReferenceData } from "./adminWriteDao.js";
 
 const BASE_TICKET_PRICE = 13.0;
 
@@ -20,8 +19,6 @@ function mapScreeningRow(row) {
 }
 
 export async function listAdminSales(database = pool) {
-    await ensureAdminReferenceData(database);
-
     const result = await database.query(
         `SELECT
             s.id,
@@ -66,8 +63,6 @@ export async function listAdminSales(database = pool) {
 }
 
 export async function listAdminScreenings(database = pool) {
-    await ensureAdminReferenceData(database);
-
     const result = await database.query(
         `SELECT
             s.id,

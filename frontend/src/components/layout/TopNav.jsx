@@ -9,6 +9,7 @@ export default function TopNav({
   nickname,
   authState,
   isLoggedIn,
+  isAdmin,
   logoutPending,
   onLogout,
 }) {
@@ -62,14 +63,16 @@ export default function TopNav({
           >
             Explore
           </NavLink>
-          <NavLink
-            to="/admin"
-            className={({ isActive }) =>
-              isActive ? "top-link active" : "top-link"
-            }
-          >
-            Admin
-          </NavLink>
+          {isAdmin && (
+            <NavLink
+              to="/admin"
+              className={({ isActive }) =>
+                isActive ? "top-link active" : "top-link"
+              }
+            >
+              Admin
+            </NavLink>
+          )}
         </nav>
       </div>
 

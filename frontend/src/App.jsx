@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
 import HomePage from "./pages/HomePage";
 import ExplorePage from "./pages/ExplorePage";
 import DetailsPage from "./pages/DetailsPage";
@@ -15,6 +15,7 @@ export default function App() {
   const [authState, setAuthState] = useState("checking");
   const [logoutPending, setLogoutPending] = useState(false);
   const isLoggedIn = Boolean(user);
+  const isAdmin = Boolean(user?.isAdmin ?? user?.is_admin);
   const googleFallback = user?.email?.split("@")[0];
   const nickname =
     user?.displayName ||
@@ -79,6 +80,7 @@ export default function App() {
         nickname={nickname}
         authState={authState}
         isLoggedIn={isLoggedIn}
+        isAdmin={isAdmin}
         logoutPending={logoutPending}
         onLogout={handleLogout}
       />
@@ -90,7 +92,24 @@ export default function App() {
           />
           <Route path="/explore" element={<ExplorePage />} />
           <Route path="/details/:id" element={<DetailsPage />} />
-          <Route path="/admin" element={<AdminPage />} />
+          <Route
+            path="/admin"
+            element={
+              authState === "checking" ? (
+                <div style={{ padding: 20, textAlign: "center" }} role="status">
+                  Checking permissions...
+                </div>
+              ) : !isLoggedIn ? (
+                <Navigate to="/login" replace />
+              ) : !isAdmin ? (
+                <div style={{ padding: 20, textAlign: "center" }} role="alert">
+                  Access denied. Administrator privileges are required.
+                </div>
+              ) : (
+                <AdminPage />
+              )
+            }
+          />
           <Route
             path="/login"
             element={<LoginPage onAuthenticated={handleAuthenticated} />}
@@ -126,7 +145,7 @@ export default function App() {
           />
         </Routes>
       </main>
-      <BottomNav />
+      <BottomNav isAdmin={isAdmin} />
     </Router>
   );
 }
