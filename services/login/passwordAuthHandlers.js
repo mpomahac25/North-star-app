@@ -4,6 +4,7 @@ import {
   readAuthCookie,
   setSessionCookie,
 } from "./authCookies.js";
+import { createEmailVerificationService } from "./email/emailVerificationService.js";
 
 function validCredentials(identifier, password) {
   return (
@@ -32,6 +33,7 @@ function validRegistration({ username, email, password }) {
 
 export function createPasswordAuthHandlers(
   persistence = createAuthPersistenceClient(),
+  emailVerification = createEmailVerificationService(persistence),
 ) {
   return {
     async register(req, res, next) {
@@ -44,17 +46,16 @@ export function createPasswordAuthHandlers(
       }
 
       try {
+        emailVerification.assertConfigured();
         const user = await persistence.createPasswordUser({
           username: username.trim(),
           email: email.trim(),
           password,
         });
-        const session = await persistence.createSession(
-          user.id,
-          readAuthCookie(req, SESSION_COOKIE_NAME),
-        );
-        setSessionCookie(res, session);
-        return res.status(201).json({ user });
+        await emailVerification.sendAccountVerificationEmail(user);
+        return res.status(202).json({
+          message: "Check your email for a link to verify your account.",
+        });
       } catch (error) {
         if (error.status === 409) {
           return res.status(409).json({
@@ -78,6 +79,17 @@ export function createPasswordAuthHandlers(
           identifier: identifier.trim(),
           password,
         });
+        if (!user) {
+          return res.status(401).json({
+            error: "Invalid username/email or password.",
+          });
+        }
+        if (!user.emailVerified) {
+          return res.status(403).json({
+            code: "EMAIL_VERIFICATION_REQUIRED",
+            error: "Verify your email address before signing in.",
+          });
+        }
         const session = await persistence.createSession(
           user.id,
           readAuthCookie(req, SESSION_COOKIE_NAME),
@@ -90,6 +102,46 @@ export function createPasswordAuthHandlers(
             error: "Invalid username/email or password.",
           });
         }
+        return next(error);
+      }
+    },
+
+    async verifyEmail(req, res, next) {
+      const { token } = req.body ?? {};
+      if (typeof token !== "string" || token.length > 128) {
+        return res.status(400).json({
+          error: "Verification link is invalid or expired.",
+        });
+      }
+
+      try {
+        await emailVerification.verifyEmailToken(token);
+        return res.status(204).end();
+      } catch (error) {
+        if (error.status === 400) {
+          return res.status(400).json({ error: error.message });
+        }
+        return next(error);
+      }
+    },
+
+    async resendVerification(req, res, next) {
+      const { email } = req.body ?? {};
+      if (
+        typeof email !== "string" ||
+        email.trim().length > 255 ||
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+      ) {
+        return res.status(400).json({ error: "A valid email is required." });
+      }
+
+      try {
+        await emailVerification.resendAccountVerificationEmail(email.trim());
+        return res.status(202).json({
+          message:
+            "If the address belongs to an unverified account, a verification email will be sent.",
+        });
+      } catch (error) {
         return next(error);
       }
     },

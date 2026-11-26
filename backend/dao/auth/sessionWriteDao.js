@@ -4,6 +4,20 @@ export function createSessionWriteDao(pool) {
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
+        const eligibleUser = await client.query(
+          `SELECT id
+           FROM users
+           WHERE id = $1 AND email_verified = TRUE
+           FOR SHARE`,
+          [userId],
+        );
+        if (eligibleUser.rowCount === 0) {
+          const error = new Error(
+            "Email must be verified before creating a session.",
+          );
+          error.status = 403;
+          throw error;
+        }
         if (previousTokenHash) {
           await client.query(
             "DELETE FROM auth_sessions WHERE token_hash = $1",

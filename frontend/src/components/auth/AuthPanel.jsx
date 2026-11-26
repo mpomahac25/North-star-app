@@ -39,6 +39,8 @@ export default function AuthPanel({ mode, onAuthenticated }) {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [verificationRequired, setVerificationRequired] = useState(false);
+  const verificationEmail = isRegistration ? email : identifier;
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -63,11 +65,24 @@ export default function AuthPanel({ mode, onAuthenticated }) {
       const result = await response.json().catch(() => ({}));
 
       if (!response.ok) {
+        if (
+          result.code === "EMAIL_VERIFICATION_REQUIRED" ||
+          result.code === "VERIFICATION_EMAIL_FAILED"
+        ) {
+          setVerificationRequired(true);
+        }
         throw new Error(
           typeof result.error === "string"
             ? result.error
             : "Could not authenticate. Please try again.",
         );
+      }
+
+      if (isRegistration && response.status === 202) {
+        navigate("/verify-email", {
+          state: { email, registrationPending: true },
+        });
+        return;
       }
 
       if (!result.user) {
@@ -152,6 +167,20 @@ export default function AuthPanel({ mode, onAuthenticated }) {
           {error && (
             <p className="auth-error" role="alert">
               {error}
+            </p>
+          )}
+          {verificationRequired && (
+            <p className="auth-error">
+              {verificationEmail.trim().includes("@") ? (
+                <Link
+                  to="/verify-email"
+                  state={{ email: verificationEmail.trim() }}
+                >
+                  Request a verification email
+                </Link>
+              ) : (
+                "Use your email address to request another verification link."
+              )}
             </p>
           )}
 

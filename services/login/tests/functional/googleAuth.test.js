@@ -106,6 +106,7 @@ describe("Google OAuth HTTP flow", () => {
       claims: () => ({
         sub: "google-subject",
         email: "user@example.test",
+        name: "Rio Viewer",
         email_verified: true,
       }),
     });
@@ -134,6 +135,7 @@ describe("Google OAuth HTTP flow", () => {
     expect(persistenceMocks.findOrCreateGoogleUser).toHaveBeenCalledWith({
       subject: "google-subject",
       email: "user@example.test",
+      displayName: "Rio Viewer",
     });
     expect(persistenceMocks.createSession).toHaveBeenCalledWith(42, undefined);
     expect(response.headers["set-cookie"].join(" ")).toContain(
@@ -156,6 +158,33 @@ describe("Google OAuth HTTP flow", () => {
       .expect(401);
     expect(response.body.error).toMatch(/verified email/i);
     expect(persistenceMocks.findOrCreateGoogleUser).not.toHaveBeenCalled();
+  });
+
+  test("does not create a session when a verified Google email belongs to an existing account", async () => {
+    const agent = request.agent(app);
+    await agent.get("/api/auth/google").expect(302);
+    oidcMocks.authorizationCodeGrant.mockResolvedValue({
+      claims: () => ({
+        sub: "google-subject",
+        email: "existing@example.test",
+        email_verified: true,
+      }),
+    });
+    persistenceMocks.findOrCreateGoogleUser.mockRejectedValue(
+      Object.assign(new Error("An account already uses this email."), {
+        status: 409,
+      }),
+    );
+
+    const response = await agent
+      .get("/api/auth/google/callback?code=auth-code&state=state-123")
+      .expect(409);
+
+    expect(response.body.error).toMatch(/already has an account/i);
+    expect(persistenceMocks.createSession).not.toHaveBeenCalled();
+    expect(response.headers["set-cookie"].join(" ")).not.toContain(
+      "rio_session=",
+    );
   });
 
   test("requires a same-origin request to log out and revokes the session", async () => {

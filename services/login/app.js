@@ -50,6 +50,8 @@ app.get("/api/auth/google", googleAuth.start);
 app.get("/api/auth/google/callback", googleAuth.callback);
 app.post("/api/auth/register", passwordAuth.register);
 app.post("/api/auth/login", passwordAuth.login);
+app.post("/api/auth/verify-email", passwordAuth.verifyEmail);
+app.post("/api/auth/resend-verification", passwordAuth.resendVerification);
 app.get("/api/auth/me", googleAuth.me);
 app.post(
   "/api/auth/logout",
@@ -67,6 +69,11 @@ app.post(
 app.use((error, req, res, next) => {
   if (res.headersSent) return next(error);
   console.error("Login service request failed.");
+  if (Number.isInteger(error.status) && error.publicMessage) {
+    const response = { error: error.publicMessage };
+    if (error.publicCode) response.code = error.publicCode;
+    return res.status(error.status).json(response);
+  }
   return res.status(500).json({ error: "Authentication request failed." });
 });
 

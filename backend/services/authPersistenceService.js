@@ -19,6 +19,7 @@ function makeUsername(subject) {
 export function createAuthPersistenceService(pool) {
   const sessionReads = createSessionReadDao(pool);
   const sessionWrites = createSessionWriteDao(pool);
+  const userWrites = createUserWriteDao(pool);
 
   async function createPasswordUser({ username, email, password }) {
     const normalizedUsername = username.trim().toLowerCase();
@@ -34,7 +35,9 @@ export function createAuthPersistenceService(pool) {
         (await reads.findByEmail(normalizedEmail)) ||
         (await reads.findByUsername(normalizedUsername))
       ) {
-        const error = new Error("An account with that username or email already exists.");
+        const error = new Error(
+          "An account with that username or email already exists.",
+        );
         error.status = 409;
         throw error;
       }
@@ -51,7 +54,8 @@ export function createAuthPersistenceService(pool) {
       await client.query("ROLLBACK");
       if (error.code === "23505") {
         error.status = 409;
-        error.message = "An account with that username or email already exists.";
+        error.message =
+          "An account with that username or email already exists.";
       }
       throw error;
     } finally {
@@ -68,14 +72,21 @@ export function createAuthPersistenceService(pool) {
     const isValid = await verifyPassword(password, user.password_hash);
     if (!isValid) return null;
 
-    return { id: user.id, username: user.username, email: user.email };
+    return {
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      displayName: user.displayName,
+      isAdmin: user.isAdmin,
+      emailVerified: user.emailVerified,
+    };
   }
 
   return {
     createPasswordUser,
     authenticatePasswordUser,
 
-    async findOrCreateGoogleUser({ subject, email }) {
+    async findOrCreateGoogleUser({ subject, email, displayName }) {
       const client = await pool.connect();
       try {
         await client.query("BEGIN");
@@ -86,17 +97,35 @@ export function createAuthPersistenceService(pool) {
           subject,
         );
         if (linkedUser) {
+          let updatedUser = linkedUser;
+          if (displayName) {
+            await writes.updateOAuthProfile({
+              userId: linkedUser.id,
+              displayName,
+            });
+            updatedUser = await reads.findByProviderSubject(
+              GOOGLE_PROVIDER,
+              subject,
+            );
+          }
           await client.query("COMMIT");
-          return linkedUser;
+          return updatedUser;
         }
 
         const existingUser = await reads.findByEmail(email);
-        const user =
-          existingUser ??
-          (await writes.createOAuthUser({
-            username: makeUsername(subject),
-            email,
-          }));
+        if (existingUser) {
+          const error = new Error(
+            "An account already uses this email. Sign in to that account first.",
+          );
+          error.status = 409;
+          throw error;
+        }
+
+        const user = await writes.createOAuthUser({
+          username: makeUsername(subject),
+          email,
+          displayName,
+        });
         await writes.linkOAuthAccount({
           userId: user.id,
           provider: GOOGLE_PROVIDER,
@@ -130,6 +159,38 @@ export function createAuthPersistenceService(pool) {
 
     revokeSession(token) {
       return sessionWrites.deleteByTokenHash(hash(token));
+    },
+
+    async saveEmailVerificationToken({ userId, tokenHash, expiresAt }) {
+      const user = await userWrites.saveEmailVerificationToken({
+        userId,
+        tokenHash,
+        expiresAt,
+      });
+      if (!user) {
+        const error = new Error("Unverified account was not found.");
+        error.status = 404;
+        throw error;
+      }
+      return user;
+    },
+
+    issueEmailVerificationToken({ email, tokenHash, expiresAt }) {
+      return userWrites.issueEmailVerificationToken({
+        email,
+        tokenHash,
+        expiresAt,
+      });
+    },
+
+    async verifyEmailToken(tokenHash) {
+      const user = await userWrites.verifyEmailToken(tokenHash);
+      if (!user) {
+        const error = new Error("Verification link is invalid or expired.");
+        error.status = 400;
+        throw error;
+      }
+      return user;
     },
   };
 }

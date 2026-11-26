@@ -2,7 +2,10 @@ export function createUserReadDao(db) {
   return {
     async findByProviderSubject(provider, subject) {
       const result = await db.query(
-        `SELECT u.id, u.username, u.email
+        `SELECT u.id, u.username, u.email,
+                u.display_name AS "displayName",
+                u.is_admin AS "isAdmin",
+                u.email_verified AS "emailVerified"
          FROM oauth_accounts a
          JOIN users u ON u.id = a.user_id
          WHERE a.provider = $1 AND a.provider_subject = $2`,
@@ -13,7 +16,10 @@ export function createUserReadDao(db) {
 
     async findByEmail(email) {
       const result = await db.query(
-        `SELECT id, username, email
+        `SELECT id, username, email,
+                email_verified AS "emailVerified",
+                is_admin AS "isAdmin",
+                display_name AS "displayName"
          FROM users
          WHERE lower(email) = lower($1)
          FOR UPDATE`,
@@ -36,7 +42,10 @@ export function createUserReadDao(db) {
     async findForPasswordAuthentication(identifier) {
       const isEmail = identifier.includes("@");
       const result = await db.query(
-        `SELECT id, username, email, password_hash
+        `SELECT id, username, email, password_hash,
+                email_verified AS "emailVerified",
+                is_admin AS "isAdmin",
+                display_name AS "displayName"
          FROM users
          WHERE lower(${isEmail ? "email" : "username"}) = lower($1)`,
         [identifier],

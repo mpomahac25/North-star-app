@@ -6,6 +6,7 @@ import DetailsPage from "./pages/DetailsPage";
 import AdminPage from "./pages/AdminPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
+import VerifyEmailPage from "./pages/VerifyEmailPage";
 import TopNav from "./components/layout/TopNav";
 import BottomNav from "./components/layout/BottomNav";
 
@@ -98,6 +99,7 @@ export default function App() {
             path="/register"
             element={<RegisterPage onAuthenticated={handleAuthenticated} />}
           />
+          <Route path="/verify-email" element={<VerifyEmailPage />} />
           <Route
             path="/seats/:id"
             element={

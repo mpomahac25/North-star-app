@@ -5,6 +5,9 @@ import { createInternalAuthRouter } from "../../routes/internalAuthRoutes.js";
 
 const authService = {
   findOrCreateGoogleUser: jest.fn(),
+  saveEmailVerificationToken: jest.fn(),
+  issueEmailVerificationToken: jest.fn(),
+  verifyEmailToken: jest.fn(),
   createSession: jest.fn(),
   findSession: jest.fn(),
   revokeSession: jest.fn(),
@@ -32,6 +35,7 @@ describe("Internal auth persistence routes", () => {
     expect(authService.findOrCreateGoogleUser).toHaveBeenCalledWith({
       subject: "google-subject",
       email: "user@example.test",
+      displayName: null,
     });
   });
 
@@ -43,5 +47,34 @@ describe("Internal auth persistence routes", () => {
 
     expect(response.body.error).toMatch(/valid Google subject and email/i);
     expect(authService.findOrCreateGoogleUser).not.toHaveBeenCalled();
+  });
+
+  test("stores a verification token hash for an existing pending account", async () => {
+    const expiresAt = new Date(Date.now() + 60_000).toISOString();
+    const user = { id: 12, email: "user@example.test" };
+    authService.saveEmailVerificationToken.mockResolvedValueOnce(user);
+
+    const response = await request(app)
+      .post("/api/internal/auth/email-verification-tokens")
+      .send({ userId: 12, tokenHash: "a".repeat(64), expiresAt })
+      .expect(201);
+
+    expect(response.body).toEqual({ user });
+    expect(authService.saveEmailVerificationToken).toHaveBeenCalledWith({
+      userId: 12,
+      tokenHash: "a".repeat(64),
+      expiresAt,
+    });
+  });
+
+  test("consumes a valid email verification token hash", async () => {
+    authService.verifyEmailToken.mockResolvedValueOnce({ id: 12 });
+
+    await request(app)
+      .post("/api/internal/auth/email-verification")
+      .send({ tokenHash: "b".repeat(64) })
+      .expect(204);
+
+    expect(authService.verifyEmailToken).toHaveBeenCalledWith("b".repeat(64));
   });
 });

@@ -51,12 +51,35 @@ export function createAuthPersistenceClient() {
       return result.user;
     },
 
-    async findOrCreateGoogleUser({ subject, email }) {
+    async findOrCreateGoogleUser({ subject, email, displayName }) {
       const result = await request("/google-users", {
         method: "POST",
-        body: { subject, email },
+        body: { subject, email, displayName },
       });
       return result.user;
+    },
+
+    async saveEmailVerificationToken({ userId, tokenHash, expiresAt }) {
+      const result = await request("/email-verification-tokens", {
+        method: "POST",
+        body: { userId, tokenHash, expiresAt },
+      });
+      return result.user;
+    },
+
+    async issueEmailVerificationToken({ email, tokenHash, expiresAt }) {
+      const result = await request("/email-verification-resend", {
+        method: "POST",
+        body: { email, tokenHash, expiresAt },
+      });
+      return result.user;
+    },
+
+    verifyEmailToken(tokenHash) {
+      return request("/email-verification", {
+        method: "POST",
+        body: { tokenHash },
+      });
     },
 
     createSession(userId, previousToken) {

@@ -119,6 +119,8 @@ export function createGoogleAuthHandlers() {
         const user = await persistence.findOrCreateGoogleUser({
           subject: claims.sub,
           email: claims.email,
+          displayName:
+            typeof claims.name === "string" ? claims.name.trim() || null : null,
         });
         const session = await persistence.createSession(
           user.id,
@@ -132,6 +134,12 @@ export function createGoogleAuthHandlers() {
           : res.status(200).json({ authenticated: true });
       } catch (error) {
         clearOauthCookies(res);
+        if (error.status === 409) {
+          return res.status(409).json({
+            error:
+              "This email already has an account. Sign in with that account first.",
+          });
+        }
         return next(error);
       }
     },
