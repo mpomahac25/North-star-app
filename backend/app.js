@@ -7,6 +7,9 @@
 
 import express from "express";
 import { pool } from "./db/pool.js";
+import { createPaymentRouter } from "./routes/paymentRoutes.js";
+import { createPaymentWebhookRouter } from "./routes/paymentWebhookRoutes.js";
+
 import {
     getNowShowingMovies,
     getComingSoonMovies,
@@ -21,6 +24,8 @@ import {
 const app = express();
 const SERVICE_IDENTIFIER = "backend";
 const MOVIES_API_URL = process.env.MOVIES_API_URL || "http://localhost:3005";
+
+app.use(createPaymentWebhookRouter());
 
 app.use(express.json());
 
@@ -386,6 +391,8 @@ app.post("/api/movies/import", async (req, res) => {
     });
   }
 });
+
+app.use(createPaymentRouter());
 
 // MUST BE KEPT AFTER ALL ROUTES!!!
 app.use((req, res) => {

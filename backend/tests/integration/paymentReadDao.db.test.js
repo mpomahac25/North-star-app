@@ -7,7 +7,7 @@ import {
     findPaymentByCheckoutAttemptId,
     findPaymentByStripeSessionId,
     listPaymentsByBookingId
-} from "../../dao/payments/paymentReadDao.js";
+} from "../../dao/payment/paymentReadDao.js";
 
 const { Pool } = pg;
 

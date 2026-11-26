@@ -6,9 +6,14 @@
  */
 
 import express from 'express';
+import { createStripeRouter } from './routes/stripeRoutes.js';
+import { createStripeWebhookRouter } from './routes/stripeWebhookRoutes.js';
+import { createStripeLifecycleRouter } from "./routes/stripeLifecycleRoutes.js";
 
 const app = express();
 const SERVICE_IDENTIFIER = 'payment';
+
+app.use(createStripeWebhookRouter());
 
 app.use(express.json());
 
@@ -25,5 +30,8 @@ app.get('/api/health', (req, res) => {
         service: SERVICE_IDENTIFIER
     });
 });
+
+app.use(createStripeRouter());
+app.use(createStripeLifecycleRouter());
 
 export default app;
