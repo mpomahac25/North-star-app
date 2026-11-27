@@ -3,9 +3,16 @@ import { beforeEach, describe, expect, jest, test } from "@jest/globals";
 const mockReadDao = {
     listAdminSales: jest.fn(),
     listAdminScreenings: jest.fn(),
+    listAdminTheatres: jest.fn(),
 };
 
 const mockWriteDao = {
+    insertAdminTheatre: jest.fn(),
+    updateAdminTheatreById: jest.fn(),
+    deleteAdminTheatreById: jest.fn(),
+    insertAdminRoom: jest.fn(),
+    updateAdminRoomById: jest.fn(),
+    deleteAdminRoomById: jest.fn(),
     insertAdminScreening: jest.fn(),
     updateAdminScreeningById: jest.fn(),
     deleteAdminScreeningById: jest.fn(),
@@ -21,12 +28,19 @@ jest.unstable_mockModule("../../dao/admin/adminWriteDao.js", () => mockWriteDao)
 jest.unstable_mockModule("../../services/movieCatalogService.js", () => mockCatalog);
 
 const {
+    createAdminRoom,
     createAdminScreening,
+    createAdminTheatre,
+    deleteAdminRoom,
     deleteAdminScreening,
+    deleteAdminTheatre,
     getAdminSales,
     getAdminScreenings,
+    getAdminTheatres,
     importAdminMovie,
+    updateAdminRoom,
     updateAdminScreening,
+    updateAdminTheatre,
 } = await import("../../services/adminService.js");
 
 function futureIsoDate(daysAhead = 14) {
@@ -39,21 +53,84 @@ describe("adminService unit tests", () => {
         jest.clearAllMocks();
     });
 
-    test("getAdminSales and getAdminScreenings delegate to DAO", async () => {
+    test("getAdminSales, getAdminScreenings, and getAdminTheatres delegate to DAO", async () => {
         mockReadDao.listAdminSales.mockResolvedValue([{ id: 1, seatsSold: 5, revenue: 65 }]);
         mockReadDao.listAdminScreenings.mockResolvedValue([{ id: 1, city: "Oulu" }]);
+        mockReadDao.listAdminTheatres.mockResolvedValue([{ id: 1, name: "Rio", rooms: [] }]);
 
         await expect(getAdminSales()).resolves.toEqual([{ id: 1, seatsSold: 5, revenue: 65 }]);
         await expect(getAdminScreenings()).resolves.toEqual([{ id: 1, city: "Oulu" }]);
+        await expect(getAdminTheatres()).resolves.toEqual([{ id: 1, name: "Rio", rooms: [] }]);
     });
 
-    test("createAdminScreening normalizes city/room and delegates premiere pricing to DAO", async () => {
+    test("theatre and room CRUD validate payloads and delegate to DAO", async () => {
+        mockWriteDao.insertAdminTheatre.mockResolvedValue({
+            theatre: {
+                id: 3,
+                name: "Rio Helsinki",
+                city: "Helsinki",
+                address: "Mannerheimintie 1",
+                timezone: "Europe/Helsinki",
+                rooms: [],
+            },
+        });
+
+        await expect(
+            createAdminTheatre({
+                name: "  Rio Helsinki ",
+                city: " Helsinki ",
+                address: " Mannerheimintie 1 ",
+            }),
+        ).resolves.toMatchObject({ id: 3, city: "Helsinki" });
+
+        await expect(
+            createAdminTheatre({ name: "", city: "Oulu", address: "Street 1" }),
+        ).rejects.toMatchObject({ status: 400, code: "INVALID_THEATRE_NAME" });
+
+        mockWriteDao.updateAdminTheatreById.mockResolvedValue({
+            theatre: { id: 3, name: "Rio Updated", city: "Helsinki", address: "New 2", rooms: [] },
+        });
+        await expect(
+            updateAdminTheatre(3, { name: "Rio Updated", city: "Helsinki", address: "New 2" }),
+        ).resolves.toMatchObject({ name: "Rio Updated" });
+
+        mockWriteDao.deleteAdminTheatreById.mockResolvedValue({
+            error: "THEATRE_HAS_SCREENINGS",
+        });
+        await expect(deleteAdminTheatre(3)).rejects.toMatchObject({
+            status: 409,
+            code: "THEATRE_HAS_SCREENINGS",
+        });
+
+        mockWriteDao.insertAdminRoom.mockResolvedValue({
+            room: { id: 9, theatreId: 3, name: "IMAX Hall", capacity: 250 },
+        });
+        await expect(
+            createAdminRoom(3, { name: " IMAX Hall ", capacity: "250" }),
+        ).resolves.toEqual({ id: 9, theatreId: 3, name: "IMAX Hall", capacity: 250 });
+
+        await expect(
+            createAdminRoom(3, { name: "Room X", capacity: 0 }),
+        ).rejects.toMatchObject({ status: 400, code: "INVALID_ROOM_CAPACITY" });
+
+        mockWriteDao.updateAdminRoomById.mockResolvedValue({
+            error: "ROOM_CAPACITY_EXCEEDED",
+        });
+        await expect(
+            updateAdminRoom(9, { name: "IMAX Hall", capacity: 50 }),
+        ).rejects.toMatchObject({ status: 409, code: "ROOM_CAPACITY_EXCEEDED" });
+
+        mockWriteDao.deleteAdminRoomById.mockResolvedValue({ deleted: true, id: 9 });
+        await expect(deleteAdminRoom(9)).resolves.toEqual({ deleted: true, id: 9 });
+    });
+
+    test("createAdminScreening trims dynamic city/room and delegates premiere pricing to DAO", async () => {
         const date = futureIsoDate(10);
         const created = {
             id: 12,
             movieId: 3,
-            city: "Oulu",
-            roomName: "Room 1",
+            city: "Helsinki",
+            roomName: "IMAX Hall",
             ticketPrice: 14.95,
             isFirstScreening: true,
         };
@@ -61,16 +138,16 @@ describe("adminService unit tests", () => {
 
         const result = await createAdminScreening({
             movieId: "3",
-            city: "  oulu ",
-            roomName: " room 1 ",
+            city: "  Helsinki ",
+            roomName: " IMAX Hall ",
             date,
             startTime: "18:30",
         });
 
         expect(mockWriteDao.insertAdminScreening).toHaveBeenCalledWith({
             movieId: 3,
-            city: "Oulu",
-            roomName: "Room 1",
+            city: "Helsinki",
+            roomName: "IMAX Hall",
             date,
             startTime: "18:30",
         });
@@ -136,7 +213,7 @@ describe("adminService unit tests", () => {
         [
             {
                 movieId: 1,
-                city: "Helsinki",
+                city: "   ",
                 roomName: "Room 1",
                 date: futureIsoDate(),
                 startTime: "18:00",
@@ -147,7 +224,7 @@ describe("adminService unit tests", () => {
             {
                 movieId: 1,
                 city: "Oulu",
-                roomName: "Room 3",
+                roomName: "   ",
                 date: futureIsoDate(),
                 startTime: "18:00",
             },

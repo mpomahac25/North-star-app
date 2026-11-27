@@ -10,6 +10,10 @@ function isScreeningOverlapError(error) {
     );
 }
 
+function isUniqueViolationError(error) {
+    return error?.code === "23505";
+}
+
 function mapScreeningRow(row) {
     const ticketPrice = Number(row.ticket_price);
     return {
@@ -26,12 +30,33 @@ function mapScreeningRow(row) {
     };
 }
 
+function mapTheatreRow(row, rooms = []) {
+    return {
+        id: row.id,
+        name: row.name,
+        city: row.city,
+        address: row.address,
+        timezone: row.timezone,
+        rooms,
+    };
+}
+
+function mapRoomRow(row) {
+    return {
+        id: row.id,
+        theatreId: row.theatre_id,
+        name: row.name,
+        capacity: row.capacity,
+    };
+}
+
 async function resolveRoomAndWindow(client, { movieId, city, roomName, date, startTime }) {
     const roomRes = await client.query(
         `SELECT r.id AS room_id, r.capacity AS room_capacity, t.timezone
          FROM rooms r
          JOIN theatres t ON t.id = r.theatre_id
          WHERE LOWER(t.city) = LOWER($1) AND LOWER(r.name) = LOWER($2)
+         ORDER BY t.id ASC, r.id ASC
          LIMIT 1`,
         [city, roomName],
     );
@@ -101,6 +126,303 @@ async function countActiveSoldSeats(client, screeningId) {
     return soldRes.rows[0].sold_count;
 }
 
+export async function insertAdminTheatre(
+    { name, city, address, timezone = "Europe/Helsinki" },
+    database = pool,
+) {
+    const client = await database.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        const duplicateRes = await client.query(
+            `SELECT id
+             FROM theatres
+             WHERE LOWER(city) = LOWER($1) AND LOWER(name) = LOWER($2)
+             LIMIT 1`,
+            [city, name],
+        );
+        if (duplicateRes.rows.length > 0) {
+            await client.query("ROLLBACK");
+            return { error: "THEATRE_ALREADY_EXISTS" };
+        }
+
+        const insertRes = await client.query(
+            `INSERT INTO theatres (name, city, address, timezone)
+             VALUES ($1, $2, $3, $4)
+             RETURNING id, name, city, address, timezone`,
+            [name, city, address, timezone],
+        );
+
+        await client.query("COMMIT");
+        return { theatre: mapTheatreRow(insertRes.rows[0], []) };
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
+export async function updateAdminTheatreById(
+    theatreId,
+    { name, city, address, timezone = "Europe/Helsinki" },
+    database = pool,
+) {
+    const client = await database.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        const existingRes = await client.query(
+            `SELECT id FROM theatres WHERE id = $1`,
+            [theatreId],
+        );
+        if (existingRes.rows.length === 0) {
+            await client.query("ROLLBACK");
+            return { error: "THEATRE_NOT_FOUND" };
+        }
+
+        const duplicateRes = await client.query(
+            `SELECT id
+             FROM theatres
+             WHERE id <> $1 AND LOWER(city) = LOWER($2) AND LOWER(name) = LOWER($3)
+             LIMIT 1`,
+            [theatreId, city, name],
+        );
+        if (duplicateRes.rows.length > 0) {
+            await client.query("ROLLBACK");
+            return { error: "THEATRE_ALREADY_EXISTS" };
+        }
+
+        const updateRes = await client.query(
+            `UPDATE theatres
+             SET name = $1, city = $2, address = $3, timezone = $4
+             WHERE id = $5
+             RETURNING id, name, city, address, timezone`,
+            [name, city, address, timezone, theatreId],
+        );
+
+        const roomsRes = await client.query(
+            `SELECT id, theatre_id, name, capacity
+             FROM rooms
+             WHERE theatre_id = $1
+             ORDER BY name ASC, id ASC`,
+            [theatreId],
+        );
+
+        await client.query("COMMIT");
+        return {
+            theatre: mapTheatreRow(updateRes.rows[0], roomsRes.rows.map(mapRoomRow)),
+        };
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
+export async function deleteAdminTheatreById(theatreId, database = pool) {
+    const client = await database.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        const existingRes = await client.query(
+            `SELECT id FROM theatres WHERE id = $1`,
+            [theatreId],
+        );
+        if (existingRes.rows.length === 0) {
+            await client.query("ROLLBACK");
+            return { error: "THEATRE_NOT_FOUND" };
+        }
+
+        const screeningsRes = await client.query(
+            `SELECT EXISTS (
+                SELECT 1
+                FROM screenings s
+                JOIN rooms r ON r.id = s.room_id
+                WHERE r.theatre_id = $1
+            ) AS has_screenings`,
+            [theatreId],
+        );
+        if (screeningsRes.rows[0].has_screenings) {
+            await client.query("ROLLBACK");
+            return { error: "THEATRE_HAS_SCREENINGS" };
+        }
+
+        await client.query(`DELETE FROM rooms WHERE theatre_id = $1`, [theatreId]);
+        await client.query(`DELETE FROM theatres WHERE id = $1`, [theatreId]);
+
+        await client.query("COMMIT");
+        return { deleted: true, id: theatreId };
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
+export async function insertAdminRoom(theatreId, { name, capacity }, database = pool) {
+    const client = await database.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        const theatreRes = await client.query(
+            `SELECT id FROM theatres WHERE id = $1`,
+            [theatreId],
+        );
+        if (theatreRes.rows.length === 0) {
+            await client.query("ROLLBACK");
+            return { error: "THEATRE_NOT_FOUND" };
+        }
+
+        const dupRes = await client.query(
+            `SELECT id
+             FROM rooms
+             WHERE theatre_id = $1 AND LOWER(name) = LOWER($2)
+             LIMIT 1`,
+            [theatreId, name],
+        );
+        if (dupRes.rows.length > 0) {
+            await client.query("ROLLBACK");
+            return { error: "ROOM_ALREADY_EXISTS" };
+        }
+
+        const insertRes = await client.query(
+            `INSERT INTO rooms (theatre_id, name, capacity)
+             VALUES ($1, $2, $3)
+             RETURNING id, theatre_id, name, capacity`,
+            [theatreId, name, capacity],
+        );
+
+        await client.query("COMMIT");
+        return { room: mapRoomRow(insertRes.rows[0]) };
+    } catch (error) {
+        await client.query("ROLLBACK");
+        if (isUniqueViolationError(error)) {
+            return { error: "ROOM_ALREADY_EXISTS" };
+        }
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
+export async function updateAdminRoomById(roomId, { name, capacity }, database = pool) {
+    const client = await database.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        const existingRes = await client.query(
+            `SELECT id, theatre_id FROM rooms WHERE id = $1`,
+            [roomId],
+        );
+        if (existingRes.rows.length === 0) {
+            await client.query("ROLLBACK");
+            return { error: "ROOM_NOT_FOUND" };
+        }
+
+        const theatreId = existingRes.rows[0].theatre_id;
+
+        const dupRes = await client.query(
+            `SELECT id
+             FROM rooms
+             WHERE theatre_id = $1 AND id <> $2 AND LOWER(name) = LOWER($3)
+             LIMIT 1`,
+            [theatreId, roomId, name],
+        );
+        if (dupRes.rows.length > 0) {
+            await client.query("ROLLBACK");
+            return { error: "ROOM_ALREADY_EXISTS" };
+        }
+
+        const maxSoldRes = await client.query(
+            `SELECT COALESCE(MAX(sold_per_screening), 0)::INTEGER AS max_sold
+             FROM (
+                 SELECT COUNT(res.id) AS sold_per_screening
+                 FROM screenings s
+                 LEFT JOIN reservations res
+                    ON res.screening_id = s.id
+                   AND NOT (res.seat_row = 1 AND res.seat_number = 1)
+                 LEFT JOIN reservation_statuses rs
+                    ON rs.id = res.status_id
+                 WHERE s.room_id = $1
+                   AND (res.id IS NULL OR rs.name <> 'cancelled')
+                 GROUP BY s.id
+             ) counts`,
+            [roomId],
+        );
+
+        const maxSold = maxSoldRes.rows[0].max_sold;
+        const maxGuestSeats = Math.max(0, capacity - 1);
+        if (maxSold > maxGuestSeats) {
+            await client.query("ROLLBACK");
+            return { error: "ROOM_CAPACITY_EXCEEDED" };
+        }
+
+        const updateRes = await client.query(
+            `UPDATE rooms
+             SET name = $1, capacity = $2
+             WHERE id = $3
+             RETURNING id, theatre_id, name, capacity`,
+            [name, capacity, roomId],
+        );
+
+        await client.query("COMMIT");
+        return { room: mapRoomRow(updateRes.rows[0]) };
+    } catch (error) {
+        await client.query("ROLLBACK");
+        if (isUniqueViolationError(error)) {
+            return { error: "ROOM_ALREADY_EXISTS" };
+        }
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
+export async function deleteAdminRoomById(roomId, database = pool) {
+    const client = await database.connect();
+
+    try {
+        await client.query("BEGIN");
+
+        const existingRes = await client.query(
+            `SELECT id FROM rooms WHERE id = $1`,
+            [roomId],
+        );
+        if (existingRes.rows.length === 0) {
+            await client.query("ROLLBACK");
+            return { error: "ROOM_NOT_FOUND" };
+        }
+
+        const screeningsRes = await client.query(
+            `SELECT EXISTS (
+                SELECT 1 FROM screenings WHERE room_id = $1
+            ) AS has_screenings`,
+            [roomId],
+        );
+        if (screeningsRes.rows[0].has_screenings) {
+            await client.query("ROLLBACK");
+            return { error: "ROOM_HAS_SCREENINGS" };
+        }
+
+        await client.query(`DELETE FROM rooms WHERE id = $1`, [roomId]);
+        await client.query("COMMIT");
+        return { deleted: true, id: roomId };
+    } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+    } finally {
+        client.release();
+    }
+}
+
 export async function insertAdminScreening(data, database = pool) {
     const client = await database.connect();
 
@@ -130,7 +452,6 @@ export async function insertAdminScreening(data, database = pool) {
         );
         const screeningId = insertRes.rows[0].id;
 
-        // Reserve Seat #1 permanently for the owner when owner account and statuses exist
         const ownerRes = await client.query(
             `SELECT id FROM users WHERE username = 'owner' LIMIT 1`,
         );

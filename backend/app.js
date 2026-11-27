@@ -24,12 +24,19 @@ import {
 
 import {
   AdminServiceError,
+  createAdminRoom,
   createAdminScreening,
+  createAdminTheatre,
+  deleteAdminRoom,
   deleteAdminScreening,
+  deleteAdminTheatre,
   getAdminSales,
   getAdminScreenings,
+  getAdminTheatres,
   importAdminMovie,
+  updateAdminRoom,
   updateAdminScreening,
+  updateAdminTheatre,
 } from "./services/adminService.js";
 
 const app = express();
@@ -488,6 +495,211 @@ app.post("/api/admin/movies/import", async (req, res) => {
       error: {
         code: "MOVIE_IMPORT_FAILED",
         message: "Could not save movie to the database.",
+      },
+    });
+  }
+});
+
+app.get("/api/admin/theatres", async (req, res) => {
+  try {
+    const theatres = await getAdminTheatres();
+    return res.json(theatres);
+  } catch (error) {
+    console.error("Could not load admin theatres from PostgreSQL:", error);
+    return res.status(500).json({
+      error: {
+        code: "ADMIN_THEATRES_READ_FAILED",
+        message: "Could not load theatres and rooms.",
+      },
+    });
+  }
+});
+
+app.post("/api/admin/theatres", async (req, res) => {
+  try {
+    const created = await createAdminTheatre(req.body);
+    return res.status(201).json(created);
+  } catch (error) {
+    if (error instanceof AdminServiceError) {
+      return res.status(error.status).json({
+        error: { code: error.code, message: error.message },
+      });
+    }
+    console.error("Could not create admin theatre:", error);
+    return res.status(500).json({
+      error: {
+        code: "ADMIN_THEATRE_CREATE_FAILED",
+        message: "Could not create theatre.",
+      },
+    });
+  }
+});
+
+app.put("/api/admin/theatres/:id", async (req, res) => {
+  const theatreId = Number(req.params.id);
+  if (
+    !/^\d+$/.test(req.params.id) ||
+    !Number.isSafeInteger(theatreId) ||
+    theatreId < 1
+  ) {
+    return res.status(400).json({
+      error: {
+        code: "INVALID_THEATRE_ID",
+        message: "Theatre ID must be a positive integer.",
+      },
+    });
+  }
+
+  try {
+    const updated = await updateAdminTheatre(theatreId, req.body);
+    return res.status(200).json(updated);
+  } catch (error) {
+    if (error instanceof AdminServiceError) {
+      return res.status(error.status).json({
+        error: { code: error.code, message: error.message },
+      });
+    }
+    console.error("Could not update admin theatre:", error);
+    return res.status(500).json({
+      error: {
+        code: "ADMIN_THEATRE_UPDATE_FAILED",
+        message: "Could not update theatre.",
+      },
+    });
+  }
+});
+
+app.delete("/api/admin/theatres/:id", async (req, res) => {
+  const theatreId = Number(req.params.id);
+  if (
+    !/^\d+$/.test(req.params.id) ||
+    !Number.isSafeInteger(theatreId) ||
+    theatreId < 1
+  ) {
+    return res.status(400).json({
+      error: {
+        code: "INVALID_THEATRE_ID",
+        message: "Theatre ID must be a positive integer.",
+      },
+    });
+  }
+
+  try {
+    const result = await deleteAdminTheatre(theatreId);
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof AdminServiceError) {
+      return res.status(error.status).json({
+        error: { code: error.code, message: error.message },
+      });
+    }
+    console.error("Could not delete admin theatre:", error);
+    return res.status(500).json({
+      error: {
+        code: "ADMIN_THEATRE_DELETE_FAILED",
+        message: "Could not delete theatre.",
+      },
+    });
+  }
+});
+
+app.post("/api/admin/theatres/:theatreId/rooms", async (req, res) => {
+  const theatreId = Number(req.params.theatreId);
+  if (
+    !/^\d+$/.test(req.params.theatreId) ||
+    !Number.isSafeInteger(theatreId) ||
+    theatreId < 1
+  ) {
+    return res.status(400).json({
+      error: {
+        code: "INVALID_THEATRE_ID",
+        message: "Theatre ID must be a positive integer.",
+      },
+    });
+  }
+
+  try {
+    const created = await createAdminRoom(theatreId, req.body);
+    return res.status(201).json(created);
+  } catch (error) {
+    if (error instanceof AdminServiceError) {
+      return res.status(error.status).json({
+        error: { code: error.code, message: error.message },
+      });
+    }
+    console.error("Could not create admin room:", error);
+    return res.status(500).json({
+      error: {
+        code: "ADMIN_ROOM_CREATE_FAILED",
+        message: "Could not create room.",
+      },
+    });
+  }
+});
+
+app.put("/api/admin/rooms/:id", async (req, res) => {
+  const roomId = Number(req.params.id);
+  if (
+    !/^\d+$/.test(req.params.id) ||
+    !Number.isSafeInteger(roomId) ||
+    roomId < 1
+  ) {
+    return res.status(400).json({
+      error: {
+        code: "INVALID_ROOM_ID",
+        message: "Room ID must be a positive integer.",
+      },
+    });
+  }
+
+  try {
+    const updated = await updateAdminRoom(roomId, req.body);
+    return res.status(200).json(updated);
+  } catch (error) {
+    if (error instanceof AdminServiceError) {
+      return res.status(error.status).json({
+        error: { code: error.code, message: error.message },
+      });
+    }
+    console.error("Could not update admin room:", error);
+    return res.status(500).json({
+      error: {
+        code: "ADMIN_ROOM_UPDATE_FAILED",
+        message: "Could not update room.",
+      },
+    });
+  }
+});
+
+app.delete("/api/admin/rooms/:id", async (req, res) => {
+  const roomId = Number(req.params.id);
+  if (
+    !/^\d+$/.test(req.params.id) ||
+    !Number.isSafeInteger(roomId) ||
+    roomId < 1
+  ) {
+    return res.status(400).json({
+      error: {
+        code: "INVALID_ROOM_ID",
+        message: "Room ID must be a positive integer.",
+      },
+    });
+  }
+
+  try {
+    const result = await deleteAdminRoom(roomId);
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof AdminServiceError) {
+      return res.status(error.status).json({
+        error: { code: error.code, message: error.message },
+      });
+    }
+    console.error("Could not delete admin room:", error);
+    return res.status(500).json({
+      error: {
+        code: "ADMIN_ROOM_DELETE_FAILED",
+        message: "Could not delete room.",
       },
     });
   }

@@ -1,22 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Search } from "lucide-react";
 import {
+    createAdminRoom,
     createAdminScreening,
+    createAdminTheatre,
+    deleteAdminRoom,
     deleteAdminScreening,
+    deleteAdminTheatre,
     fetchAdminDashboardInitialData,
     importMovieFromOmdb,
     searchAdminOmdbMovies,
+    updateAdminRoom,
     updateAdminScreening,
+    updateAdminTheatre,
 } from "../api";
 import { formatDate } from "../utils/dateFormat";
 import "./AdminPage.css";
-
-const ROOM_OPTIONS = [
-    { name: "Room 1", capacity: 100 },
-    { name: "Room 2", capacity: 200 },
-];
-
-const LOCATION_OPTIONS = ["Oulu", "Tampere"];
 
 function formatCurrency(amount) {
     return `€${Number(amount).toLocaleString("en-US", {
@@ -63,6 +62,7 @@ function calculateShowtimeSchedule(startTime) {
 export default function AdminPage() {
     const [activeSection, setActiveSection] = useState("sales");
 
+    const [theatres, setTheatres] = useState([]);
     const [libraryMovies, setLibraryMovies] = useState([]);
     const [omdbCatalog, setOmdbCatalog] = useState([]);
     const [salesScreenings, setSalesScreenings] = useState([]);
@@ -81,10 +81,21 @@ export default function AdminPage() {
     const [editingScreeningId, setEditingScreeningId] = useState(null);
     const [isSubmittingScreening, setIsSubmittingScreening] = useState(false);
     const [selectedMovieId, setSelectedMovieId] = useState(1);
-    const [selectedLocation, setSelectedLocation] = useState("Oulu");
-    const [selectedRoom, setSelectedRoom] = useState("Room 1");
+    const [selectedLocation, setSelectedLocation] = useState("");
+    const [selectedRoom, setSelectedRoom] = useState("");
     const [screeningDate, setScreeningDate] = useState(() => getLocalIsoDate(0));
     const [screeningStartTime, setScreeningStartTime] = useState("18:00");
+
+    // Section 2C: Theatre & Room CRUD
+    const [editingTheatreId, setEditingTheatreId] = useState(null);
+    const [theatreNameInput, setTheatreNameInput] = useState("");
+    const [theatreCityInput, setTheatreCityInput] = useState("");
+    const [theatreAddressInput, setTheatreAddressInput] = useState("");
+    const [isSubmittingTheatre, setIsSubmittingTheatre] = useState(false);
+
+    const [roomDrafts, setRoomDrafts] = useState({});
+    const [editingRoomId, setEditingRoomId] = useState(null);
+    const [submittingRoomTheatreId, setSubmittingRoomTheatreId] = useState(null);
 
     const salesRef = useRef(null);
     const moviesRef = useRef(null);
@@ -92,6 +103,28 @@ export default function AdminPage() {
 
     const todayIso = getLocalIsoDate(0);
     const tomorrowIso = getLocalIsoDate(1);
+
+    const syncSelectedLocationAndRoom = (nextTheatres, preferredCity, preferredRoom) => {
+        if (!Array.isArray(nextTheatres) || nextTheatres.length === 0) {
+            setSelectedLocation("");
+            setSelectedRoom("");
+            return;
+        }
+
+        const matchedTheatre =
+            nextTheatres.find((t) => t.city === preferredCity) || nextTheatres[0];
+        setSelectedLocation(matchedTheatre.city);
+
+        const availableRooms = matchedTheatre.rooms || [];
+        if (availableRooms.length === 0) {
+            setSelectedRoom("");
+            return;
+        }
+
+        const matchedRoom =
+            availableRooms.find((r) => r.name === preferredRoom) || availableRooms[0];
+        setSelectedRoom(matchedRoom.name);
+    };
 
     useEffect(() => {
         let isMounted = true;
@@ -101,6 +134,7 @@ export default function AdminPage() {
                 const data = await fetchAdminDashboardInitialData();
                 if (!isMounted) return;
 
+                setTheatres(data.theatres);
                 setLibraryMovies(data.libraryMovies);
                 setOmdbCatalog(data.omdbCatalog);
                 setSalesScreenings(data.salesScreenings);
@@ -109,6 +143,8 @@ export default function AdminPage() {
                 if (data.libraryMovies.length > 0) {
                     setSelectedMovieId(data.libraryMovies[0].id);
                 }
+
+                syncSelectedLocationAndRoom(data.theatres, "Oulu", "Room 1");
             } finally {
                 if (isMounted) {
                     setIsLoading(false);
@@ -139,6 +175,35 @@ export default function AdminPage() {
         return () => window.removeEventListener("scroll", handleScroll);
     }, []);
 
+    const locationOptions = useMemo(() => {
+        const seen = new Set();
+        const cities = [];
+        for (const t of theatres) {
+            if (t.city && !seen.has(t.city)) {
+                seen.add(t.city);
+                cities.push(t.city);
+            }
+        }
+        return cities;
+    }, [theatres]);
+
+    const availableRoomsForSelectedLocation = useMemo(() => {
+        const matchingTheatres = theatres.filter((t) => t.city === selectedLocation);
+        return matchingTheatres.flatMap((t) => t.rooms || []);
+    }, [theatres, selectedLocation]);
+
+    const handleSelectLocation = (city) => {
+        setSelectedLocation(city);
+        const matchingRooms = theatres
+            .filter((t) => t.city === city)
+            .flatMap((t) => t.rooms || []);
+        if (matchingRooms.length === 0) {
+            setSelectedRoom("");
+        } else if (!matchingRooms.some((r) => r.name === selectedRoom)) {
+            setSelectedRoom(matchingRooms[0].name);
+        }
+    };
+
     const scrollToSection = (sectionKey) => {
         setActiveSection(sectionKey);
         const targetRef = sectionKey === "sales" ? salesRef : moviesRef;
@@ -158,29 +223,24 @@ export default function AdminPage() {
         const totalRevenue = filteredSales.reduce((sum, s) => sum + s.revenue, 0);
         const totalSeats = filteredSales.reduce((sum, s) => sum + s.seatsSold, 0);
 
-        const ouluRevenue = filteredSales
-            .filter((s) => s.city === "Oulu")
-            .reduce((sum, s) => sum + s.revenue, 0);
-        const tampereRevenue = filteredSales
-            .filter((s) => s.city === "Tampere")
-            .reduce((sum, s) => sum + s.revenue, 0);
+        const breakdownCities =
+            locationOptions.length > 0 ? locationOptions : ["Oulu", "Tampere"];
 
-        const ouluSeats = filteredSales
-            .filter((s) => s.city === "Oulu")
-            .reduce((sum, s) => sum + s.seatsSold, 0);
-        const tampereSeats = filteredSales
-            .filter((s) => s.city === "Tampere")
-            .reduce((sum, s) => sum + s.seatsSold, 0);
+        const byCity = breakdownCities.map((city) => {
+            const citySales = filteredSales.filter((s) => s.city === city);
+            return {
+                city,
+                revenue: citySales.reduce((sum, s) => sum + s.revenue, 0),
+                seats: citySales.reduce((sum, s) => sum + s.seatsSold, 0),
+            };
+        });
 
         return {
             totalRevenue,
             totalSeats,
-            ouluRevenue,
-            tampereRevenue,
-            ouluSeats,
-            tampereSeats,
+            byCity,
         };
-    }, [filteredSales]);
+    }, [filteredSales, locationOptions]);
 
     const [remoteSearch, setRemoteSearch] = useState({
         query: "",
@@ -272,12 +332,14 @@ export default function AdminPage() {
         );
     }, [scheduledScreenings, selectedMovieId, editingScreeningId]);
 
-    const refreshAdminData = async () => {
+    const refreshAdminData = async (preferredCity = selectedLocation, preferredRoom = selectedRoom) => {
         const data = await fetchAdminDashboardInitialData();
+        setTheatres(data.theatres);
         setLibraryMovies(data.libraryMovies);
         setOmdbCatalog(data.omdbCatalog);
         setSalesScreenings(data.salesScreenings);
         setScheduledScreenings(data.scheduledScreenings);
+        syncSelectedLocationAndRoom(data.theatres, preferredCity, preferredRoom);
     };
 
     const handleImportMovie = async () => {
@@ -311,9 +373,12 @@ export default function AdminPage() {
         if (isSubmittingScreening) return;
 
         const chosenMovie = libraryMovies.find((m) => m.id === Number(selectedMovieId));
-        const chosenRoom = ROOM_OPTIONS.find((r) => r.name === selectedRoom) || ROOM_OPTIONS[0];
+        const chosenRoom = availableRoomsForSelectedLocation.find((r) => r.name === selectedRoom);
 
-        if (!chosenMovie) return;
+        if (!chosenMovie || !selectedLocation || !chosenRoom) {
+            setStatusBanner("Select a valid movie, location, and room before scheduling.");
+            return;
+        }
 
         const payload = {
             movieId: chosenMovie.id,
@@ -376,6 +441,154 @@ export default function AdminPage() {
         setEditingScreeningId(null);
         setScreeningDate(getLocalIsoDate(0));
     };
+
+    const handleTheatreSubmit = async (e) => {
+        e.preventDefault();
+        if (isSubmittingTheatre) return;
+
+        const payload = {
+            name: theatreNameInput.trim(),
+            city: theatreCityInput.trim(),
+            address: theatreAddressInput.trim(),
+        };
+
+        setIsSubmittingTheatre(true);
+        try {
+            if (editingTheatreId !== null) {
+                const updated = await updateAdminTheatre(editingTheatreId, payload);
+                await refreshAdminData(updated.city, selectedRoom);
+                setEditingTheatreId(null);
+                setStatusBanner(`Updated theatre "${updated.name}" (${updated.city}).`);
+            } else {
+                const created = await createAdminTheatre(payload);
+                await refreshAdminData(created.city, selectedRoom);
+                setStatusBanner(`Added theatre "${created.name}" (${created.city}).`);
+            }
+            setTheatreNameInput("");
+            setTheatreCityInput("");
+            setTheatreAddressInput("");
+        } catch (err) {
+            setStatusBanner(err.message || "Could not save theatre.");
+        } finally {
+            setIsSubmittingTheatre(false);
+        }
+    };
+
+    const handleEditTheatre = (theatre) => {
+        setEditingTheatreId(theatre.id);
+        setTheatreNameInput(theatre.name);
+        setTheatreCityInput(theatre.city);
+        setTheatreAddressInput(theatre.address);
+    };
+
+    const handleCancelTheatreEdit = () => {
+        setEditingTheatreId(null);
+        setTheatreNameInput("");
+        setTheatreCityInput("");
+        setTheatreAddressInput("");
+    };
+
+    const handleDeleteTheatre = async (theatre) => {
+        try {
+            await deleteAdminTheatre(theatre.id);
+            await refreshAdminData();
+            if (editingTheatreId === theatre.id) {
+                handleCancelTheatreEdit();
+            }
+            setStatusBanner(`Deleted theatre "${theatre.name}".`);
+        } catch (err) {
+            setStatusBanner(err.message || "Could not delete theatre.");
+        }
+    };
+
+    const getRoomDraft = (theatreId) => {
+        return roomDrafts[theatreId] || { name: "", capacity: "100" };
+    };
+
+    const updateRoomDraft = (theatreId, patch) => {
+        setRoomDrafts((prev) => ({
+            ...prev,
+            [theatreId]: {
+                ...getRoomDraft(theatreId),
+                ...patch,
+            },
+        }));
+    };
+
+    const handleRoomSubmit = async (e, theatre) => {
+        e.preventDefault();
+        if (submittingRoomTheatreId === theatre.id) return;
+
+        const draft = getRoomDraft(theatre.id);
+        const payload = {
+            name: draft.name.trim(),
+            capacity: Number(draft.capacity),
+        };
+
+        setSubmittingRoomTheatreId(theatre.id);
+        try {
+            if (editingRoomId !== null) {
+                const updated = await updateAdminRoom(editingRoomId, payload);
+                await refreshAdminData(theatre.city, updated.name);
+                setEditingRoomId(null);
+                setStatusBanner(
+                    `Updated room "${updated.name}" (${updated.capacity} seats) in ${theatre.name}.`,
+                );
+            } else {
+                const created = await createAdminRoom(theatre.id, payload);
+                await refreshAdminData(theatre.city, created.name);
+                setStatusBanner(
+                    `Added room "${created.name}" (${created.capacity} seats) to ${theatre.name}.`,
+                );
+            }
+            setRoomDrafts((prev) => ({
+                ...prev,
+                [theatre.id]: { name: "", capacity: "100" },
+            }));
+        } catch (err) {
+            setStatusBanner(err.message || "Could not save room.");
+        } finally {
+            setSubmittingRoomTheatreId(null);
+        }
+    };
+
+    const handleEditRoom = (theatreId, room) => {
+        setEditingRoomId(room.id);
+        setRoomDrafts((prev) => ({
+            ...prev,
+            [theatreId]: {
+                name: room.name,
+                capacity: String(room.capacity),
+            },
+        }));
+    };
+
+    const handleCancelRoomEdit = (theatreId) => {
+        setEditingRoomId(null);
+        setRoomDrafts((prev) => ({
+            ...prev,
+            [theatreId]: { name: "", capacity: "100" },
+        }));
+    };
+
+    const handleDeleteRoom = async (theatre, room) => {
+        try {
+            await deleteAdminRoom(room.id);
+            await refreshAdminData();
+            if (editingRoomId === room.id) {
+                setEditingRoomId(null);
+            }
+            setStatusBanner(`Deleted room "${room.name}" from ${theatre.name}.`);
+        } catch (err) {
+            setStatusBanner(err.message || "Could not delete room.");
+        }
+    };
+
+    const canScheduleScreening =
+        !isSubmittingScreening &&
+        libraryMovies.length > 0 &&
+        Boolean(selectedLocation) &&
+        availableRoomsForSelectedLocation.length > 0;
 
     return (
         <div className="admin-page">
@@ -460,8 +673,11 @@ export default function AdminPage() {
                                             onChange={(e) => setLocationFilter(e.target.value)}
                                         >
                                             <option value="All Locations">All Locations</option>
-                                            <option value="Oulu">Oulu</option>
-                                            <option value="Tampere">Tampere</option>
+                                            {locationOptions.map((city) => (
+                                                <option key={city} value={city}>
+                                                    {city}
+                                                </option>
+                                            ))}
                                         </select>
                                         <ChevronDown size={16} className="admin-select-icon" />
                                     </div>
@@ -497,18 +713,12 @@ export default function AdminPage() {
                                     </p>
                                     <hr className="admin-card-divider" />
                                     <div className="admin-kpi-breakdown">
-                                        <span>
-                                            Oulu{" "}
-                                            <strong>
-                                                {formatCurrency(salesMetrics.ouluRevenue)}
-                                            </strong>
-                                        </span>
-                                        <span>
-                                            Tampere{" "}
-                                            <strong>
-                                                {formatCurrency(salesMetrics.tampereRevenue)}
-                                            </strong>
-                                        </span>
+                                        {salesMetrics.byCity.map((entry) => (
+                                            <span key={entry.city}>
+                                                {entry.city}{" "}
+                                                <strong>{formatCurrency(entry.revenue)}</strong>
+                                            </span>
+                                        ))}
                                     </div>
                                 </article>
 
@@ -519,13 +729,11 @@ export default function AdminPage() {
                                     </p>
                                     <hr className="admin-card-divider" />
                                     <div className="admin-kpi-breakdown">
-                                        <span>
-                                            Oulu <strong>{salesMetrics.ouluSeats} seats</strong>
-                                        </span>
-                                        <span>
-                                            Tampere{" "}
-                                            <strong>{salesMetrics.tampereSeats} seats</strong>
-                                        </span>
+                                        {salesMetrics.byCity.map((entry) => (
+                                            <span key={entry.city}>
+                                                {entry.city} <strong>{entry.seats} seats</strong>
+                                            </span>
+                                        ))}
                                     </div>
                                 </article>
                             </div>
@@ -585,7 +793,7 @@ export default function AdminPage() {
                                     <tfoot>
                                         <tr>
                                             <td colSpan={4} className="admin-muted-text">
-                                                Total across both locations
+                                                Total across all locations
                                             </td>
                                             <td className="font-bold">
                                                 {salesMetrics.totalSeats} seats
@@ -658,7 +866,7 @@ export default function AdminPage() {
                                     2. Movies &amp; Screenings
                                 </h2>
                                 <p className="admin-section-subtitle">
-                                    Find a movie. Choose a room. Set the start time.
+                                    Manage theatres and rooms, import movies, and schedule showtimes.
                                 </p>
                             </div>
 
@@ -804,61 +1012,75 @@ export default function AdminPage() {
                                         <div className="admin-two-col-controls">
                                             <div className="admin-field-group">
                                                 <span className="admin-label">Location</span>
-                                                <div
-                                                    className="admin-choice-pair"
-                                                    role="group"
-                                                    aria-label="Location"
-                                                >
-                                                    {LOCATION_OPTIONS.map((city) => (
-                                                        <button
-                                                            key={city}
-                                                            type="button"
-                                                            className={`admin-choice-btn ${
-                                                                selectedLocation === city
-                                                                    ? "active"
-                                                                    : ""
-                                                            }`}
-                                                            onClick={() =>
-                                                                setSelectedLocation(city)
-                                                            }
-                                                        >
-                                                            <span className="choice-main">
-                                                                {city}
-                                                            </span>
-                                                        </button>
-                                                    ))}
-                                                </div>
+                                                {locationOptions.length === 0 ? (
+                                                    <p className="admin-panel-hint">
+                                                        No locations yet. Add a theatre below.
+                                                    </p>
+                                                ) : (
+                                                    <div
+                                                        className="admin-choice-pair"
+                                                        role="group"
+                                                        aria-label="Location"
+                                                    >
+                                                        {locationOptions.map((city) => (
+                                                            <button
+                                                                key={city}
+                                                                type="button"
+                                                                className={`admin-choice-btn ${
+                                                                    selectedLocation === city
+                                                                        ? "active"
+                                                                        : ""
+                                                                }`}
+                                                                onClick={() =>
+                                                                    handleSelectLocation(city)
+                                                                }
+                                                            >
+                                                                <span className="choice-main">
+                                                                    {city}
+                                                                </span>
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                )}
                                             </div>
 
                                             <div className="admin-field-group">
                                                 <span className="admin-label">Screening Room</span>
-                                                <div
-                                                    className="admin-choice-pair"
-                                                    role="group"
-                                                    aria-label="Screening Room"
-                                                >
-                                                    {ROOM_OPTIONS.map((room) => (
-                                                        <button
-                                                            key={room.name}
-                                                            type="button"
-                                                            className={`admin-choice-btn ${
-                                                                selectedRoom === room.name
-                                                                    ? "active"
-                                                                    : ""
-                                                            }`}
-                                                            onClick={() =>
-                                                                setSelectedRoom(room.name)
-                                                            }
-                                                        >
-                                                            <span className="choice-main">
-                                                                {room.name}
-                                                            </span>
-                                                            <span className="choice-sub">
-                                                                {room.capacity} seats
-                                                            </span>
-                                                        </button>
-                                                    ))}
-                                                </div>
+                                                {availableRoomsForSelectedLocation.length === 0 ? (
+                                                    <p className="admin-panel-hint">
+                                                        No rooms yet. Add a room to this theatre below.
+                                                    </p>
+                                                ) : (
+                                                    <div
+                                                        className="admin-choice-pair"
+                                                        role="group"
+                                                        aria-label="Screening Room"
+                                                    >
+                                                        {availableRoomsForSelectedLocation.map(
+                                                            (room) => (
+                                                                <button
+                                                                    key={room.id || room.name}
+                                                                    type="button"
+                                                                    className={`admin-choice-btn ${
+                                                                        selectedRoom === room.name
+                                                                            ? "active"
+                                                                            : ""
+                                                                    }`}
+                                                                    onClick={() =>
+                                                                        setSelectedRoom(room.name)
+                                                                    }
+                                                                >
+                                                                    <span className="choice-main">
+                                                                        {room.name}
+                                                                    </span>
+                                                                    <span className="choice-sub">
+                                                                        {room.capacity} seats
+                                                                    </span>
+                                                                </button>
+                                                            ),
+                                                        )}
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
 
@@ -941,7 +1163,7 @@ export default function AdminPage() {
                                             <button
                                                 type="submit"
                                                 className="admin-btn-primary"
-                                                disabled={isSubmittingScreening}
+                                                disabled={!canScheduleScreening}
                                             >
                                                 {isSubmittingScreening
                                                     ? editingScreeningId !== null
@@ -964,6 +1186,276 @@ export default function AdminPage() {
                                         </div>
                                     </form>
                                 </article>
+                            </div>
+
+                            {/* Theatres & Rooms Management */}
+                            <div className="admin-subsection-header">
+                                <h3 className="admin-subsection-title">Theatres &amp; Rooms</h3>
+                                <span className="admin-subsection-meta">
+                                    {theatres.length}{" "}
+                                    {theatres.length === 1 ? "theatre" : "theatres"} configured
+                                </span>
+                            </div>
+
+                            <div className="admin-workspace-grid">
+                                <article className="admin-panel-card">
+                                    <div className="admin-panel-header">
+                                        <h4 className="admin-panel-title">
+                                            {editingTheatreId !== null
+                                                ? "Edit theatre"
+                                                : "Add a theatre"}
+                                        </h4>
+                                        <p className="admin-panel-desc">
+                                            Create cinema locations directly in the database.
+                                        </p>
+                                    </div>
+
+                                    <form
+                                        className="admin-schedule-form"
+                                        onSubmit={handleTheatreSubmit}
+                                    >
+                                        <div className="admin-field-group">
+                                            <label
+                                                htmlFor="theatre-name-input"
+                                                className="admin-label"
+                                            >
+                                                Theatre Name
+                                            </label>
+                                            <input
+                                                id="theatre-name-input"
+                                                type="text"
+                                                className="admin-input"
+                                                placeholder="e.g. Rio Cinema Oulu"
+                                                value={theatreNameInput}
+                                                onChange={(e) =>
+                                                    setTheatreNameInput(e.target.value)
+                                                }
+                                                required
+                                            />
+                                        </div>
+
+                                        <div className="admin-two-col-controls">
+                                            <div className="admin-field-group">
+                                                <label
+                                                    htmlFor="theatre-city-input"
+                                                    className="admin-label"
+                                                >
+                                                    City
+                                                </label>
+                                                <input
+                                                    id="theatre-city-input"
+                                                    type="text"
+                                                    className="admin-input"
+                                                    placeholder="e.g. Oulu"
+                                                    value={theatreCityInput}
+                                                    onChange={(e) =>
+                                                        setTheatreCityInput(e.target.value)
+                                                    }
+                                                    required
+                                                />
+                                            </div>
+
+                                            <div className="admin-field-group">
+                                                <label
+                                                    htmlFor="theatre-address-input"
+                                                    className="admin-label"
+                                                >
+                                                    Street Address
+                                                </label>
+                                                <input
+                                                    id="theatre-address-input"
+                                                    type="text"
+                                                    className="admin-input"
+                                                    placeholder="e.g. Hallituskatu 11"
+                                                    value={theatreAddressInput}
+                                                    onChange={(e) =>
+                                                        setTheatreAddressInput(e.target.value)
+                                                    }
+                                                    required
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="admin-form-actions">
+                                            <button
+                                                type="submit"
+                                                className="admin-btn-primary"
+                                                disabled={isSubmittingTheatre}
+                                            >
+                                                {isSubmittingTheatre
+                                                    ? "Saving..."
+                                                    : editingTheatreId !== null
+                                                      ? "Save Theatre Changes"
+                                                      : "Add Theatre"}
+                                            </button>
+
+                                            {editingTheatreId !== null && (
+                                                <button
+                                                    type="button"
+                                                    className="admin-btn-secondary"
+                                                    onClick={handleCancelTheatreEdit}
+                                                >
+                                                    Cancel Theatre Edit
+                                                </button>
+                                            )}
+                                        </div>
+                                    </form>
+                                </article>
+
+                                <div className="admin-theatres-list">
+                                    {theatres.length === 0 ? (
+                                        <div className="admin-omdb-empty">
+                                            No theatres in the database yet. Add your first theatre
+                                            on the left, then add screening rooms to it.
+                                        </div>
+                                    ) : (
+                                        theatres.map((theatre) => {
+                                            const draft = getRoomDraft(theatre.id);
+                                            const isEditingRoomInThisTheatre = (
+                                                theatre.rooms || []
+                                            ).some((r) => r.id === editingRoomId);
+
+                                            return (
+                                                <article
+                                                    key={theatre.id}
+                                                    className="admin-panel-card"
+                                                >
+                                                    <div className="admin-theatre-card-head">
+                                                        <div>
+                                                            <h4 className="admin-panel-title">
+                                                                {theatre.name}
+                                                            </h4>
+                                                            <p className="admin-panel-desc">
+                                                                {theatre.city} · {theatre.address}
+                                                            </p>
+                                                        </div>
+                                                        <div className="admin-row-actions">
+                                                            <button
+                                                                type="button"
+                                                                className="admin-action-link edit"
+                                                                onClick={() =>
+                                                                    handleEditTheatre(theatre)
+                                                                }
+                                                            >
+                                                                Edit Theatre
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                className="admin-action-link delete"
+                                                                onClick={() =>
+                                                                    handleDeleteTheatre(theatre)
+                                                                }
+                                                            >
+                                                                Delete Theatre
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    {(theatre.rooms || []).length > 0 && (
+                                                        <ul className="admin-room-list">
+                                                            {theatre.rooms.map((room) => (
+                                                                <li
+                                                                    key={room.id}
+                                                                    className="admin-room-item"
+                                                                >
+                                                                    <span>
+                                                                        <strong>{room.name}</strong>{" "}
+                                                                        · {room.capacity} seats
+                                                                    </span>
+                                                                    <div className="admin-row-actions">
+                                                                        <button
+                                                                            type="button"
+                                                                            className="admin-action-link edit"
+                                                                            onClick={() =>
+                                                                                handleEditRoom(
+                                                                                    theatre.id,
+                                                                                    room,
+                                                                                )
+                                                                            }
+                                                                        >
+                                                                            Edit Room
+                                                                        </button>
+                                                                        <button
+                                                                            type="button"
+                                                                            className="admin-action-link delete"
+                                                                            onClick={() =>
+                                                                                handleDeleteRoom(
+                                                                                    theatre,
+                                                                                    room,
+                                                                                )
+                                                                            }
+                                                                        >
+                                                                            Delete Room
+                                                                        </button>
+                                                                    </div>
+                                                                </li>
+                                                            ))}
+                                                        </ul>
+                                                    )}
+
+                                                    <form
+                                                        className="admin-room-inline-form"
+                                                        onSubmit={(e) =>
+                                                            handleRoomSubmit(e, theatre)
+                                                        }
+                                                    >
+                                                        <input
+                                                            type="text"
+                                                            aria-label={`Room name for ${theatre.name}`}
+                                                            className="admin-input"
+                                                            placeholder="Room name (e.g. Room 1)"
+                                                            value={draft.name}
+                                                            onChange={(e) =>
+                                                                updateRoomDraft(theatre.id, {
+                                                                    name: e.target.value,
+                                                                })
+                                                            }
+                                                            required
+                                                        />
+                                                        <input
+                                                            type="number"
+                                                            min={1}
+                                                            max={5000}
+                                                            aria-label={`Seat capacity for ${theatre.name}`}
+                                                            className="admin-input"
+                                                            placeholder="Seats"
+                                                            value={draft.capacity}
+                                                            onChange={(e) =>
+                                                                updateRoomDraft(theatre.id, {
+                                                                    capacity: e.target.value,
+                                                                })
+                                                            }
+                                                            required
+                                                        />
+                                                        <button
+                                                            type="submit"
+                                                            className="admin-btn-secondary"
+                                                            disabled={
+                                                                submittingRoomTheatreId ===
+                                                                theatre.id
+                                                            }
+                                                        >
+                                                            {isEditingRoomInThisTheatre
+                                                                ? "Save Room"
+                                                                : "Add Room"}
+                                                        </button>
+                                                        {isEditingRoomInThisTheatre && (
+                                                            <button
+                                                                type="button"
+                                                                className="admin-btn-secondary"
+                                                                onClick={() =>
+                                                                    handleCancelRoomEdit(theatre.id)
+                                                                }
+                                                            >
+                                                                Cancel
+                                                            </button>
+                                                        )}
+                                                    </form>
+                                                </article>
+                                            );
+                                        })
+                                    )}
+                                </div>
                             </div>
 
                             {/* Scheduled Screenings List */}

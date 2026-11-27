@@ -30,10 +30,20 @@ jest.unstable_mockModule("../../db/pool.js", () => ({
     pool: databasePool,
 }));
 
-const { listAdminSales, listAdminScreenings } = await import("../../dao/admin/adminReadDao.js");
+const { listAdminSales, listAdminScreenings, listAdminTheatres } =
+    await import("../../dao/admin/adminReadDao.js");
 
-const { deleteAdminScreeningById, insertAdminScreening, updateAdminScreeningById } =
-    await import("../../dao/admin/adminWriteDao.js");
+const {
+    deleteAdminRoomById,
+    deleteAdminScreeningById,
+    deleteAdminTheatreById,
+    insertAdminRoom,
+    insertAdminScreening,
+    insertAdminTheatre,
+    updateAdminRoomById,
+    updateAdminScreeningById,
+    updateAdminTheatreById,
+} = await import("../../dao/admin/adminWriteDao.js");
 
 function futureIsoDate(daysAhead = 30) {
     const date = new Date(Date.now() + daysAhead * 24 * 60 * 60 * 1000);
@@ -72,6 +82,8 @@ describe("Admin PostgreSQL integration tests", () => {
                     (1, 'Rio Cinema Oulu', 'Oulu', 'Hallituskatu 11', 'Europe/Helsinki'),
                     (2, 'Rio Cinema Tampere', 'Tampere', 'Hämeenkatu 14', 'Europe/Helsinki')
                 ON CONFLICT DO NOTHING;
+
+                SELECT setval(pg_get_serial_sequence('theatres', 'id'), COALESCE((SELECT MAX(id) FROM theatres), 1), true);
 
                 INSERT INTO rooms (theatre_id, name, capacity)
                 SELECT t.id, r.name, r.capacity
@@ -442,5 +454,86 @@ describe("Admin PostgreSQL integration tests", () => {
         expect(conflicts).toHaveLength(1);
 
         createdScreeningIds.push(...created.map((result) => result.screening.id));
+    });
+
+    test("supports theatre and room CRUD from an empty database and protects active screenings", async () => {
+        const createdTheatre = await insertAdminTheatre(
+            {
+                name: "Rio Jyväskylä",
+                city: "Jyväskylä",
+                address: "Kauppakatu 10",
+            },
+            databasePool,
+        );
+        expect(createdTheatre.theatre).toMatchObject({
+            name: "Rio Jyväskylä",
+            city: "Jyväskylä",
+        });
+
+        const theatreId = createdTheatre.theatre.id;
+        const createdRoom = await insertAdminRoom(
+            theatreId,
+            { name: "Studio A", capacity: 60 },
+            databasePool,
+        );
+        expect(createdRoom.room).toMatchObject({
+            theatreId,
+            name: "Studio A",
+            capacity: 60,
+        });
+
+        const roomId = createdRoom.room.id;
+        const theatresList = await listAdminTheatres(databasePool);
+        expect(theatresList.some((t) => t.id === theatreId && t.rooms.length === 1)).toBe(true);
+
+        const scheduled = await insertAdminScreening(
+            {
+                movieId: testMovieId,
+                city: "Jyväskylä",
+                roomName: "Studio A",
+                date: futureIsoDate(45),
+                startTime: "18:00",
+            },
+            databasePool,
+        );
+        expect(scheduled.screening.city).toBe("Jyväskylä");
+        createdScreeningIds.push(scheduled.screening.id);
+
+        const blockedRoomDelete = await deleteAdminRoomById(roomId, databasePool);
+        expect(blockedRoomDelete).toEqual({ error: "ROOM_HAS_SCREENINGS" });
+
+        const blockedTheatreDelete = await deleteAdminTheatreById(theatreId, databasePool);
+        expect(blockedTheatreDelete).toEqual({ error: "THEATRE_HAS_SCREENINGS" });
+
+        const updatedRoom = await updateAdminRoomById(
+            roomId,
+            { name: "Studio A+", capacity: 80 },
+            databasePool,
+        );
+        expect(updatedRoom.room.capacity).toBe(80);
+
+        const updatedTheatre = await updateAdminTheatreById(
+            theatreId,
+            {
+                name: "Rio Jyväskylä Center",
+                city: "Jyväskylä",
+                address: "Kauppakatu 12",
+            },
+            databasePool,
+        );
+        expect(updatedTheatre.theatre.name).toBe("Rio Jyväskylä Center");
+
+        await deleteAdminScreeningById(scheduled.screening.id, databasePool);
+        const index = createdScreeningIds.indexOf(scheduled.screening.id);
+        if (index !== -1) createdScreeningIds.splice(index, 1);
+
+        expect(await deleteAdminRoomById(roomId, databasePool)).toEqual({
+            deleted: true,
+            id: roomId,
+        });
+        expect(await deleteAdminTheatreById(theatreId, databasePool)).toEqual({
+            deleted: true,
+            id: theatreId,
+        });
     });
 });

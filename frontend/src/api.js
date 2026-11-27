@@ -1,5 +1,30 @@
 const USE_ADMIN_MOCK = false; // Set to true to use mock data for admin dashboard
 
+const MOCK_THEATRES = [
+    {
+        id: 1,
+        name: "Rio Cinema Oulu",
+        city: "Oulu",
+        address: "Hallituskatu 11",
+        timezone: "Europe/Helsinki",
+        rooms: [
+            { id: 1, theatreId: 1, name: "Room 1", capacity: 100 },
+            { id: 2, theatreId: 1, name: "Room 2", capacity: 200 },
+        ],
+    },
+    {
+        id: 2,
+        name: "Rio Cinema Tampere",
+        city: "Tampere",
+        address: "Hämeenkatu 14",
+        timezone: "Europe/Helsinki",
+        rooms: [
+            { id: 3, theatreId: 2, name: "Room 1", capacity: 100 },
+            { id: 4, theatreId: 2, name: "Room 2", capacity: 200 },
+        ],
+    },
+];
+
 const MOCK_LIBRARY_MOVIES = [
     {
         id: 1,
@@ -209,6 +234,7 @@ function normalizeOmdbSearchItem(item) {
 export async function fetchAdminDashboardInitialData() {
     if (USE_ADMIN_MOCK) {
         return {
+            theatres: structuredClone(MOCK_THEATRES),
             libraryMovies: structuredClone(MOCK_LIBRARY_MOVIES),
             omdbCatalog: structuredClone(MOCK_OMDB_CATALOG),
             salesScreenings: structuredClone(MOCK_SALES_SCREENINGS),
@@ -216,16 +242,19 @@ export async function fetchAdminDashboardInitialData() {
         };
     }
 
-    const [sales, movies, screenings] = await Promise.all([
+    const [sales, movies, screenings, theatres] = await Promise.all([
         apiRequest("/api/admin/sales"),
         apiRequest("/api/movies?page=1&limit=100"),
         apiRequest("/api/admin/screenings"),
+        apiRequest("/api/admin/theatres"),
     ]);
 
     const rawSales = Array.isArray(sales) ? sales : sales.items || [];
     const rawScreenings = Array.isArray(screenings) ? screenings : screenings.items || [];
+    const rawTheatres = Array.isArray(theatres) ? theatres : theatres.items || [];
 
     return {
+        theatres: rawTheatres,
         libraryMovies: movies.items || [],
         omdbCatalog: [],
         salesScreenings: rawSales.map((item) => ({
@@ -234,6 +263,64 @@ export async function fetchAdminDashboardInitialData() {
         })),
         scheduledScreenings: rawScreenings,
     };
+}
+
+export async function createAdminTheatre(theatrePayload) {
+    if (USE_ADMIN_MOCK) {
+        return { ...theatrePayload, id: Date.now(), rooms: [] };
+    }
+    return apiRequest("/api/admin/theatres", {
+        method: "POST",
+        body: JSON.stringify(theatrePayload),
+    });
+}
+
+export async function updateAdminTheatre(id, theatrePayload) {
+    if (USE_ADMIN_MOCK) {
+        return { ...theatrePayload, id, rooms: [] };
+    }
+    return apiRequest(`/api/admin/theatres/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        body: JSON.stringify(theatrePayload),
+    });
+}
+
+export async function deleteAdminTheatre(id) {
+    if (USE_ADMIN_MOCK) {
+        return { deleted: true, id };
+    }
+    return apiRequest(`/api/admin/theatres/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+    });
+}
+
+export async function createAdminRoom(theatreId, roomPayload) {
+    if (USE_ADMIN_MOCK) {
+        return { ...roomPayload, id: Date.now(), theatreId };
+    }
+    return apiRequest(`/api/admin/theatres/${encodeURIComponent(theatreId)}/rooms`, {
+        method: "POST",
+        body: JSON.stringify(roomPayload),
+    });
+}
+
+export async function updateAdminRoom(id, roomPayload) {
+    if (USE_ADMIN_MOCK) {
+        return { ...roomPayload, id };
+    }
+    return apiRequest(`/api/admin/rooms/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        body: JSON.stringify(roomPayload),
+    });
+}
+
+export async function deleteAdminRoom(id) {
+    if (USE_ADMIN_MOCK) {
+        return { deleted: true, id };
+    }
+    return apiRequest(`/api/admin/rooms/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+    });
 }
 
 export async function searchAdminOmdbMovies(query) {

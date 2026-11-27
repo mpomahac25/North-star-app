@@ -60,6 +60,163 @@ async function setupStatefulAdminApi(page, { authMode = "admin" } = {}) {
         });
     });
 
+    let nextTheatreId = 3;
+    let nextRoomId = 5;
+    let theatres = [
+        {
+            id: 1,
+            name: "Rio Cinema Oulu",
+            city: "Oulu",
+            address: "Hallituskatu 11",
+            timezone: "Europe/Helsinki",
+            rooms: [
+                { id: 1, theatreId: 1, name: "Room 1", capacity: 100 },
+                { id: 2, theatreId: 1, name: "Room 2", capacity: 200 },
+            ],
+        },
+        {
+            id: 2,
+            name: "Rio Cinema Tampere",
+            city: "Tampere",
+            address: "Hämeenkatu 14",
+            timezone: "Europe/Helsinki",
+            rooms: [
+                { id: 3, theatreId: 2, name: "Room 1", capacity: 100 },
+                { id: 4, theatreId: 2, name: "Room 2", capacity: 200 },
+            ],
+        },
+    ];
+
+    await page.route("**/api/admin/theatres**", async (route) => {
+        const request = route.request();
+        const url = new URL(request.url());
+        const method = request.method();
+        const roomsMatch = url.pathname.match(/\/api\/admin\/theatres\/(\d+)\/rooms$/);
+        const theatreIdMatch = url.pathname.match(/\/api\/admin\/theatres\/(\d+)$/);
+
+        if (roomsMatch && method === "POST") {
+            const theatreId = Number(roomsMatch[1]);
+            const payload = request.postDataJSON() || {};
+            const theatre = theatres.find((t) => t.id === theatreId);
+            if (!theatre) {
+                await route.fulfill({
+                    status: 404,
+                    contentType: "application/json",
+                    body: JSON.stringify({
+                        error: { code: "THEATRE_NOT_FOUND", message: "Not found" },
+                    }),
+                });
+                return;
+            }
+            const createdRoom = {
+                id: nextRoomId++,
+                theatreId,
+                name: payload.name,
+                capacity: Number(payload.capacity),
+            };
+            theatre.rooms.push(createdRoom);
+            await route.fulfill({
+                status: 201,
+                contentType: "application/json",
+                body: JSON.stringify(createdRoom),
+            });
+            return;
+        }
+
+        if (theatreIdMatch && method === "PUT") {
+            const theatreId = Number(theatreIdMatch[1]);
+            const payload = request.postDataJSON() || {};
+            const theatre = theatres.find((t) => t.id === theatreId);
+            if (theatre) {
+                theatre.name = payload.name;
+                theatre.city = payload.city;
+                theatre.address = payload.address;
+            }
+            await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify(theatre),
+            });
+            return;
+        }
+
+        if (theatreIdMatch && method === "DELETE") {
+            const theatreId = Number(theatreIdMatch[1]);
+            theatres = theatres.filter((t) => t.id !== theatreId);
+            await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify({ deleted: true, id: theatreId }),
+            });
+            return;
+        }
+
+        if (method === "POST") {
+            const payload = request.postDataJSON() || {};
+            const createdTheatre = {
+                id: nextTheatreId++,
+                name: payload.name,
+                city: payload.city,
+                address: payload.address,
+                timezone: "Europe/Helsinki",
+                rooms: [],
+            };
+            theatres.push(createdTheatre);
+            await route.fulfill({
+                status: 201,
+                contentType: "application/json",
+                body: JSON.stringify(createdTheatre),
+            });
+            return;
+        }
+
+        await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify(theatres),
+        });
+    });
+
+    await page.route("**/api/admin/rooms/*", async (route) => {
+        const request = route.request();
+        const url = new URL(request.url());
+        const method = request.method();
+        const roomId = Number(url.pathname.split("/").pop());
+
+        if (method === "PUT") {
+            const payload = request.postDataJSON() || {};
+            let updatedRoom = null;
+            for (const theatre of theatres) {
+                const room = theatre.rooms.find((r) => r.id === roomId);
+                if (room) {
+                    room.name = payload.name;
+                    room.capacity = Number(payload.capacity);
+                    updatedRoom = room;
+                }
+            }
+            await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify(updatedRoom),
+            });
+            return;
+        }
+
+        if (method === "DELETE") {
+            for (const theatre of theatres) {
+                theatre.rooms = theatre.rooms.filter((r) => r.id !== roomId);
+            }
+            await route.fulfill({
+                status: 200,
+                contentType: "application/json",
+                body: JSON.stringify({ deleted: true, id: roomId }),
+            });
+            return;
+        }
+
+        await route.continue();
+    });
+
     const movies = [
         {
             id: 1,
@@ -634,5 +791,42 @@ test.describe("Admin Dashboard", () => {
                 message: "Authentication required.",
             },
         });
+    });
+
+    test("Creates a new theatre and room in the UI and schedules a screening in it", async ({
+        page,
+    }) => {
+        await setupStatefulAdminApi(page);
+        await page.setViewportSize({ width: 1280, height: 800 });
+        await page.goto("/admin");
+
+        await page.getByLabel("Theatre Name").fill("Rio Helsinki");
+        await page.getByLabel("City", { exact: true }).fill("Helsinki");
+        await page.getByLabel("Street Address").fill("Mannerheimintie 1");
+        await page.getByRole("button", { name: "Add Theatre" }).click();
+
+        await expect(page.getByRole("status")).toContainText(
+            'Added theatre "Rio Helsinki" (Helsinki).',
+        );
+
+        await page.getByLabel("Room name for Rio Helsinki").fill("Hall A");
+        await page.getByLabel("Seat capacity for Rio Helsinki").fill("140");
+        await page.getByRole("button", { name: "Add Room" }).last().click();
+
+        await expect(page.getByRole("status")).toContainText(
+            'Added room "Hall A" (140 seats) to Rio Helsinki.',
+        );
+
+        await page
+            .getByRole("group", { name: "Location" })
+            .getByRole("button", { name: "Helsinki" })
+            .click();
+        await page
+            .getByRole("group", { name: "Screening Room" })
+            .getByRole("button", { name: /Hall A/ })
+            .click();
+
+        await page.getByRole("button", { name: "Schedule Screening" }).click();
+        await expect(page.getByRole("status")).toContainText("Helsinki (Hall A)");
     });
 });

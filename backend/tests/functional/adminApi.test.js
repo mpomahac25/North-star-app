@@ -18,6 +18,13 @@ const mockAdminService = {
     AdminServiceError: MockAdminServiceError,
     getAdminSales: jest.fn(),
     getAdminScreenings: jest.fn(),
+    getAdminTheatres: jest.fn(),
+    createAdminTheatre: jest.fn(),
+    updateAdminTheatre: jest.fn(),
+    deleteAdminTheatre: jest.fn(),
+    createAdminRoom: jest.fn(),
+    updateAdminRoom: jest.fn(),
+    deleteAdminRoom: jest.fn(),
     createAdminScreening: jest.fn(),
     updateAdminScreening: jest.fn(),
     deleteAdminScreening: jest.fn(),
@@ -249,5 +256,55 @@ describe("Admin API routes functional tests", () => {
             .set("Cookie", ADMIN_COOKIE);
         expect(downRes.status).toBe(502);
         expect(downRes.body.error.code).toBe("MOVIES_SERVICE_ERROR");
+    });
+
+    test("supports admin theatre and room CRUD endpoints", async () => {
+        mockAdminService.getAdminTheatres.mockResolvedValueOnce([
+            { id: 1, name: "Rio Oulu", city: "Oulu", address: "Hallituskatu 11", rooms: [] },
+        ]);
+        const listRes = await request(app)
+            .get("/api/admin/theatres")
+            .set("Cookie", ADMIN_COOKIE);
+        expect(listRes.status).toBe(200);
+        expect(listRes.body).toHaveLength(1);
+
+        mockAdminService.createAdminTheatre.mockResolvedValueOnce({
+            id: 2,
+            name: "Rio Turku",
+            city: "Turku",
+            address: "Aurakatu 5",
+            rooms: [],
+        });
+        const createTheatreRes = await request(app)
+            .post("/api/admin/theatres")
+            .set("Cookie", ADMIN_COOKIE)
+            .send({ name: "Rio Turku", city: "Turku", address: "Aurakatu 5" });
+        expect(createTheatreRes.status).toBe(201);
+        expect(createTheatreRes.body.city).toBe("Turku");
+
+        mockAdminService.createAdminRoom.mockResolvedValueOnce({
+            id: 5,
+            theatreId: 2,
+            name: "Main Hall",
+            capacity: 150,
+        });
+        const createRoomRes = await request(app)
+            .post("/api/admin/theatres/2/rooms")
+            .set("Cookie", ADMIN_COOKIE)
+            .send({ name: "Main Hall", capacity: 150 });
+        expect(createRoomRes.status).toBe(201);
+        expect(createRoomRes.body.capacity).toBe(150);
+
+        mockAdminService.deleteAdminRoom.mockResolvedValueOnce({ deleted: true, id: 5 });
+        const delRoomRes = await request(app)
+            .delete("/api/admin/rooms/5")
+            .set("Cookie", ADMIN_COOKIE);
+        expect(delRoomRes.status).toBe(200);
+
+        mockAdminService.deleteAdminTheatre.mockResolvedValueOnce({ deleted: true, id: 2 });
+        const delTheatreRes = await request(app)
+            .delete("/api/admin/theatres/2")
+            .set("Cookie", ADMIN_COOKIE);
+        expect(delTheatreRes.status).toBe(200);
     });
 });

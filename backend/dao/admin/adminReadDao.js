@@ -83,3 +83,38 @@ export async function listAdminScreenings(database = pool) {
 
     return result.rows.map(mapScreeningRow);
 }
+
+export async function listAdminTheatres(database = pool) {
+    const theatresRes = await database.query(
+        `SELECT id, name, city, address, timezone
+         FROM theatres
+         ORDER BY city ASC, name ASC, id ASC`,
+    );
+
+    const roomsRes = await database.query(
+        `SELECT id, theatre_id, name, capacity
+         FROM rooms
+         ORDER BY name ASC, id ASC`,
+    );
+
+    const roomsByTheatreId = new Map();
+    for (const row of roomsRes.rows) {
+        const list = roomsByTheatreId.get(row.theatre_id) || [];
+        list.push({
+            id: row.id,
+            theatreId: row.theatre_id,
+            name: row.name,
+            capacity: row.capacity,
+        });
+        roomsByTheatreId.set(row.theatre_id, list);
+    }
+
+    return theatresRes.rows.map((row) => ({
+        id: row.id,
+        name: row.name,
+        city: row.city,
+        address: row.address,
+        timezone: row.timezone,
+        rooms: roomsByTheatreId.get(row.id) || [],
+    }));
+}
