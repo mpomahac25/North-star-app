@@ -15,6 +15,7 @@ import {
     Ticket,
     Users,
 } from "lucide-react";
+import { formatDate } from "../utils/dateFormat";
 import "./DetailsPage.css";
 
 function formatRuntime(runtime) {
@@ -38,44 +39,29 @@ function cleanValue(value, fallback = "Not available") {
 }
 
 function formatReleaseDate(value) {
-    if (!value) return "Not available";
-
-    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
-
-    if (!match) return "Not available";
-
-    const [, year, month, day] = match;
-
-    const months = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-        "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
-
-    const date = new Date(`${value}T00:00:00Z`);
-
-    if (
-        Number.isNaN(date.getTime()) ||
-        date.getUTCFullYear() !== Number(year) ||
-        date.getUTCMonth() !== Number(month) - 1 ||
-        date.getUTCDate() !== Number(day)
-    ) {
-        return "Not available";
-    }
-
-    return `${day} ${months[Number(month) - 1]} ${year}`;
+    return formatDate(value) || "Not available";
 }
 
 function formatScreeningTime(value) {
-    return new Date(value).toLocaleString("en-GB", {
+    const date = new Date(value);
+    const dateLabel = formatDate(value, { timeZone: "Europe/Helsinki" });
+
+    if (!dateLabel || Number.isNaN(date.getTime())) {
+        return "Not available";
+    }
+
+    const weekday = date.toLocaleDateString("en-GB", {
         timeZone: "Europe/Helsinki",
         weekday: "short",
-        day: "numeric",
-        month: "short",
-        year: "numeric",
+    });
+    const timeLabel = date.toLocaleTimeString("en-GB", {
+        timeZone: "Europe/Helsinki",
         hour: "2-digit",
         minute: "2-digit",
         hour12: false,
     });
+
+    return `${weekday}, ${dateLabel}, ${timeLabel}`;
 }
 
 export default function DetailsPage() {

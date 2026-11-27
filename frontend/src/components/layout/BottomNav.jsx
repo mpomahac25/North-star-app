@@ -2,7 +2,7 @@ import { Home, Compass, ShoppingCart, ShieldCheck, User } from "lucide-react";
 import { NavLink } from "react-router-dom";
 import "./BottomNav.css";
 
-export default function BottomNav() {
+export default function BottomNav({ isAdmin }) {
     return (
         <nav className="bottom-nav" aria-label="Mobile navigation">
             <NavLink to="/" className="nav-link-wrapper">
@@ -32,14 +32,16 @@ export default function BottomNav() {
                 )}
             </NavLink>
 
-            <NavLink to="/admin" className="nav-link-wrapper">
-                {({ isActive }) => (
-                    <div className={`nav-item ${isActive ? "active" : ""}`}>
-                        <ShieldCheck size={20} fill={isActive ? "currentColor" : "none"} />
-                        <span>Admin</span>
-                    </div>
-                )}
-            </NavLink>
+            {isAdmin && (
+                <NavLink to="/admin" className="nav-link-wrapper">
+                    {({ isActive }) => (
+                        <div className={`nav-item ${isActive ? "active" : ""}`}>
+                            <ShieldCheck size={20} fill={isActive ? "currentColor" : "none"} />
+                            <span>Admin</span>
+                        </div>
+                    )}
+                </NavLink>
+            )}
 
             <NavLink to="/profile" className="nav-link-wrapper">
                 {({ isActive }) => (

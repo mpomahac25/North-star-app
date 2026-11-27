@@ -7,20 +7,46 @@
 
 import express from "express";
 import { pool } from "./db/pool.js";
+import { createAuthPersistenceService } from "./services/authPersistenceService.js";
+import { createInternalAuthRouter } from "./routes/internalAuthRoutes.js";
+import { createAuthServiceProxy } from "./routes/authServiceProxy.js";
+import { requireAdmin } from "./middleware/requireAdmin.js";
 import {
-    getNowShowingMovies,
-    getComingSoonMovies,
-    getMovie,
-    getUpcomingMovieScreenings,
-    getMovieByImdbId,
-    getMovieList,
-    importMovieByTitle,
-    MovieCatalogError,
+  getNowShowingMovies,
+  getComingSoonMovies,
+  getMovie,
+  getUpcomingMovieScreenings,
+  getMovieByImdbId,
+  getMovieList,
+  importMovieByTitle,
+  MovieCatalogError,
 } from "./services/movieCatalogService.js";
+
+import {
+  AdminServiceError,
+  createAdminRoom,
+  createAdminScreening,
+  createAdminTheatre,
+  deleteAdminRoom,
+  deleteAdminScreening,
+  deleteAdminTheatre,
+  getAdminSales,
+  getAdminScreenings,
+  getAdminTheatres,
+  importAdminMovie,
+  updateAdminRoom,
+  updateAdminScreening,
+  updateAdminTheatre,
+} from "./services/adminService.js";
 
 const app = express();
 const SERVICE_IDENTIFIER = "backend";
 const MOVIES_API_URL = process.env.MOVIES_API_URL || "http://localhost:3005";
+
+// Public authentication requests enter through the backend and are forwarded
+// to the login service. Keep this before body parsing so request bodies stream
+// through unchanged, including OAuth callback and session cookies.
+app.use("/api/auth", createAuthServiceProxy());
 
 app.use(express.json());
 
@@ -55,6 +81,11 @@ app.get("/api/ready", async (req, res) => {
   }
 });
 
+app.use(
+  "/api/internal/auth",
+  createInternalAuthRouter(createAuthPersistenceService(pool)),
+);
+
 app.get("/api/movies/coming-soon", async (req, res) => {
   const year = req.query.year === undefined ? 2026 : Number(req.query.year);
   if (!Number.isInteger(year) || year < 1888 || year > 2100) {
@@ -81,18 +112,18 @@ app.get("/api/movies/coming-soon", async (req, res) => {
 
 // MUST BE KEPT BEFORE /api/movies/:id
 app.get("/api/movies/now-showing", async (req, res) => {
-    try {
-        return res.json(await getNowShowingMovies());
-    } catch (error) {
-        console.error("Could not load Now Showing movies from PostgreSQL:", error);
+  try {
+    return res.json(await getNowShowingMovies());
+  } catch (error) {
+    console.error("Could not load Now Showing movies from PostgreSQL:", error);
 
-        return res.status(500).json({
-            error: {
-                code: "MOVIE_CATALOG_READ_FAILED",
-                message: "Could not load currently showing movies.",
-            },
-        });
-    }
+    return res.status(500).json({
+      error: {
+        code: "MOVIE_CATALOG_READ_FAILED",
+        message: "Could not load currently showing movies.",
+      },
+    });
+  }
 });
 
 app.get("/api/movies", async (req, res) => {
@@ -104,89 +135,80 @@ app.get("/api/movies", async (req, res) => {
     req.query.year === undefined ? undefined : Number(req.query.year);
 
   if (!Number.isInteger(page) || page < 1) {
-    return res
-      .status(400)
-      .json({
-        error: {
-          code: "INVALID_PAGE",
-          message: "Page must be a positive integer.",
-        },
-      });
+    return res.status(400).json({
+      error: {
+        code: "INVALID_PAGE",
+        message: "Page must be a positive integer.",
+      },
+    });
   }
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
-    return res
-      .status(400)
-      .json({
-        error: {
-          code: "INVALID_LIMIT",
-          message: "Limit must be between 1 and 100.",
-        },
-      });
+    return res.status(400).json({
+      error: {
+        code: "INVALID_LIMIT",
+        message: "Limit must be between 1 and 100.",
+      },
+    });
   }
   if (query !== undefined && query.length > 100) {
-    return res
-      .status(400)
-      .json({
-        error: {
-          code: "INVALID_QUERY",
-          message: "Search query cannot exceed 100 characters.",
-        },
-      });
+    return res.status(400).json({
+      error: {
+        code: "INVALID_QUERY",
+        message: "Search query cannot exceed 100 characters.",
+      },
+    });
   }
   if (
     releaseYear !== undefined &&
     (!Number.isInteger(releaseYear) || releaseYear < 1888 || releaseYear > 2100)
   ) {
-    return res
-      .status(400)
-      .json({
-        error: {
-          code: "INVALID_RELEASE_YEAR",
-          message: "Year must be from 1888 to 2100.",
-        },
-      });
+    return res.status(400).json({
+      error: {
+        code: "INVALID_RELEASE_YEAR",
+        message: "Year must be from 1888 to 2100.",
+      },
+    });
   }
+  try {
+    const options = {
+      query: query || undefined,
+      releaseYear,
+      limit,
+      offset: (page - 1) * limit,
+    };
 
-    try {
-        const options = {
-            query: query || undefined,
-            releaseYear,
-            limit,
-            offset: (page - 1) * limit,
-        };
+    let result = await getMovieList(options);
 
-        let result = await getMovieList(options);
+    // TODO: Remove temporary OMDb search fallback when the Admin panel is implemented.
+    if (query && query.length >= 2 && page === 1 && result.total === 0) {
+      try {
+        const url = new URL("/api/movies/search", MOVIES_API_URL);
+        url.searchParams.set("q", query);
+        url.searchParams.set("type", "movie");
 
-        // TODO: Remove temporary OMDb search fallback when the Admin panel is implemented.
-        if (query && query.length >= 2 && page === 1 && result.total === 0) {
+        const response = await fetch(url, {
+          signal: AbortSignal.timeout(12000),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+
+          for (const movie of (data.Search ?? []).slice(0, 10)) {
             try {
-                const url = new URL("/api/movies/search", MOVIES_API_URL);
-                url.searchParams.set("q", query);
-                url.searchParams.set("type", "movie");
-
-                const response = await fetch(url, {
-                    signal: AbortSignal.timeout(12000),
-                });
-
-                if (response.ok) {
-                    const data = await response.json();
-
-                    for (const movie of (data.Search ?? []).slice(0, 10)) {
-                        try {
-                            await getMovieByImdbId(movie.imdbID);
-                        } catch (error) {
-                            console.error("Could not import movie:", movie.imdbID, error);
-                        }
-                    }
-
-                    result = await getMovieList(options);
-                }
+              await getMovieByImdbId(movie.imdbID);
             } catch (error) {
-                console.error("Temporary OMDb search failed:", error);
+              console.error("Could not import movie:", movie.imdbID, error);
             }
-        }
+          }
 
-        return res.json({ ...result, page, limit });
+          result = await getMovieList(options);
+        }
+      } catch (error) {
+        console.error("Temporary OMDb search failed:", error);
+      }
+    }
+
+    return res.json({ ...result, page, limit });
   } catch (error) {
     console.error("Could not list movies from PostgreSQL:", error);
     return res.status(500).json({
@@ -226,122 +248,122 @@ app.get("/api/movies/search", async (req, res) => {
 // TODO: When authentication is implemented, restrict OMDb fallback to administrators.
 // Public users must only retrieve movies already stored in PostgreSQL.
 app.get("/api/movies/:id", async (req, res) => {
-    const { id } = req.params;
-    const numericId = Number(id);
+  const { id } = req.params;
+  const numericId = Number(id);
 
-    if (/^\d+$/.test(id)) {
-        if (!Number.isSafeInteger(numericId) || numericId < 1) {
-            return res.status(400).json({
-                error: {
-                    code: "INVALID_MOVIE_ID",
-                    message: "Movie ID must be a positive integer.",
-                },
-            });
-        }
-
-        try {
-            const movie = await getMovie(numericId);
-
-            if (!movie) {
-                return res.status(404).json({
-                    error: {
-                        code: "MOVIE_NOT_FOUND",
-                        message: "Movie was not found.",
-                    },
-                });
-            }
-
-            return res.json(movie);
-        } catch (error) {
-            console.error("Could not read movie from PostgreSQL:", error);
-
-            return res.status(500).json({
-                error: {
-                    code: "MOVIE_CATALOG_READ_FAILED",
-                    message: "Could not load movie from the database.",
-                },
-            });
-        }
-    }
-
-    if (!/^tt\d+$/.test(id)) {
-        return res.status(400).json({
-            error: {
-                code: "INVALID_MOVIE_ID",
-                message: "Movie ID must be a positive integer or a valid IMDb ID.",
-            },
-        });
+  if (/^\d+$/.test(id)) {
+    if (!Number.isSafeInteger(numericId) || numericId < 1) {
+      return res.status(400).json({
+        error: {
+          code: "INVALID_MOVIE_ID",
+          message: "Movie ID must be a positive integer.",
+        },
+      });
     }
 
     try {
-        const movie = await getMovieByImdbId(id);
-        return res.json(movie);
-    } catch (error) {
-        if (error instanceof MovieCatalogError) {
-            const code =
-                error.status === 404
-                    ? "MOVIE_NOT_FOUND"
-                    : error.status === 502
-                        ? "MOVIES_SERVICE_UNAVAILABLE"
-                        : "MOVIE_DETAILS_FAILED";
+      const movie = await getMovie(numericId);
 
-            return res.status(error.status).json({
-                error: {
-                    code,
-                    message: error.message,
-                },
-            });
-        }
-
-        console.error("Could not load movie details:", error);
-
-        return res.status(500).json({
-            error: {
-                code: "MOVIE_CATALOG_READ_FAILED",
-                message: "Could not load movie details.",
-            },
+      if (!movie) {
+        return res.status(404).json({
+          error: {
+            code: "MOVIE_NOT_FOUND",
+            message: "Movie was not found.",
+          },
         });
+      }
+
+      return res.json(movie);
+    } catch (error) {
+      console.error("Could not read movie from PostgreSQL:", error);
+
+      return res.status(500).json({
+        error: {
+          code: "MOVIE_CATALOG_READ_FAILED",
+          message: "Could not load movie from the database.",
+        },
+      });
     }
+  }
+
+  if (!/^tt\d+$/.test(id)) {
+    return res.status(400).json({
+      error: {
+        code: "INVALID_MOVIE_ID",
+        message: "Movie ID must be a positive integer or a valid IMDb ID.",
+      },
+    });
+  }
+
+  try {
+    const movie = await getMovieByImdbId(id);
+    return res.json(movie);
+  } catch (error) {
+    if (error instanceof MovieCatalogError) {
+      const code =
+        error.status === 404
+          ? "MOVIE_NOT_FOUND"
+          : error.status === 502
+            ? "MOVIES_SERVICE_UNAVAILABLE"
+            : "MOVIE_DETAILS_FAILED";
+
+      return res.status(error.status).json({
+        error: {
+          code,
+          message: error.message,
+        },
+      });
+    }
+
+    console.error("Could not load movie details:", error);
+
+    return res.status(500).json({
+      error: {
+        code: "MOVIE_CATALOG_READ_FAILED",
+        message: "Could not load movie details.",
+      },
+    });
+  }
 });
 
 app.get("/api/movies/:id/screenings", async (req, res) => {
-    const { id } = req.params;
-    const movieId = Number(id);
+  const { id } = req.params;
+  const movieId = Number(id);
 
-    if (!/^\d+$/.test(id) || !Number.isSafeInteger(movieId) || movieId < 1) {
-        return res.status(400).json({
-            error: {
-                code: "INVALID_MOVIE_ID",
-                message: "Movie ID must be a positive integer.",
-            },
-        });
+  if (!/^\d+$/.test(id) || !Number.isSafeInteger(movieId) || movieId < 1) {
+    return res.status(400).json({
+      error: {
+        code: "INVALID_MOVIE_ID",
+        message: "Movie ID must be a positive integer.",
+      },
+    });
+  }
+
+  try {
+    const movie = await getMovie(movieId);
+
+    if (!movie) {
+      return res.status(404).json({
+        error: {
+          code: "MOVIE_NOT_FOUND",
+          message: "Movie was not found.",
+        },
+      });
     }
 
-    try {
-        const movie = await getMovie(movieId);
+    const screenings = await getUpcomingMovieScreenings(movieId);
 
-        if (!movie) {
-            return res.status(404).json({
-                error: {
-                    code: "MOVIE_NOT_FOUND",
-                    message: "Movie was not found.",
-                },
-            });
-        }
+    return res.json(screenings);
+  } catch (error) {
+    console.error("Could not load movie screenings from PostgreSQL:", error);
 
-        const screenings = await getUpcomingMovieScreenings(movieId);
-
-        return res.json(screenings);
-    } catch (error) {
-        console.error("Could not load movie screenings from PostgreSQL:", error);
-
-        return res.status(500).json({
-            error: {
-                code: "MOVIE_SCREENINGS_READ_FAILED",
-                message: "Could not load movie screenings.",
-            },
-        });
-    }
+    return res.status(500).json({
+      error: {
+        code: "MOVIE_SCREENINGS_READ_FAILED",
+        message: "Could not load movie screenings.",
+      },
+    });
+  }
 });
 
 // TODO: Restrict movie imports from OMDb to authenticated administrators.
@@ -382,6 +404,405 @@ app.post("/api/movies/import", async (req, res) => {
       error: {
         code: "MOVIE_IMPORT_FAILED",
         message: "Could not save movie to the database.",
+      },
+    });
+  }
+});
+
+// --- ADMIN DASHBOARD ROUTES ---
+
+app.use("/api/admin", requireAdmin);
+
+app.get("/api/admin/sales", async (req, res) => {
+  try {
+    const sales = await getAdminSales();
+    return res.json(sales);
+  } catch (error) {
+    console.error("Could not load admin sales from PostgreSQL:", error);
+    return res.status(500).json({
+      error: {
+        code: "ADMIN_SALES_READ_FAILED",
+        message: "Could not load sales overview from the database.",
+      },
+    });
+  }
+});
+
+app.get("/api/admin/movies/search", async (req, res) => {
+  const q = typeof req.query.q === "string" ? req.query.q.trim() : "";
+  if (!q) {
+    return res.status(400).json({
+      error: {
+        code: "INVALID_QUERY",
+        message: "Search query is required.",
+      },
+    });
+  }
+
+  try {
+    if (/^tt\d+$/.test(q)) {
+      const targetUrl = new URL(
+        `/api/movies/${encodeURIComponent(q)}`,
+        MOVIES_API_URL,
+      );
+      const response = await fetch(targetUrl, {
+        signal: AbortSignal.timeout(12000),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        return res.status(response.status).json(data);
+      }
+      return res.json({ Search: [data] });
+    }
+
+    const targetUrl = new URL("/api/movies/search", MOVIES_API_URL);
+    targetUrl.searchParams.set("q", q);
+    targetUrl.searchParams.set("type", "movie");
+    const response = await fetch(targetUrl, {
+      signal: AbortSignal.timeout(12000),
+    });
+    const data = await response.json().catch(() => ({}));
+    return res.status(response.status).json(data);
+  } catch (error) {
+    console.error("Could not search OMDb via movies service:", error);
+    return res.status(502).json({
+      error: {
+        code: "MOVIES_SERVICE_ERROR",
+        message: "Could not fetch search results from the movies service.",
+      },
+    });
+  }
+});
+
+app.post("/api/admin/movies/import", async (req, res) => {
+  try {
+    const movie = await importAdminMovie(req.body);
+    return res.status(200).json(movie);
+  } catch (error) {
+    if (
+      error instanceof AdminServiceError ||
+      error instanceof MovieCatalogError
+    ) {
+      return res.status(error.status).json({
+        error: {
+          code: error.code || "MOVIE_IMPORT_FAILED",
+          message: error.message,
+        },
+      });
+    }
+    console.error("Could not import movie in admin route:", error);
+    return res.status(500).json({
+      error: {
+        code: "MOVIE_IMPORT_FAILED",
+        message: "Could not save movie to the database.",
+      },
+    });
+  }
+});
+
+app.get("/api/admin/theatres", async (req, res) => {
+  try {
+    const theatres = await getAdminTheatres();
+    return res.json(theatres);
+  } catch (error) {
+    console.error("Could not load admin theatres from PostgreSQL:", error);
+    return res.status(500).json({
+      error: {
+        code: "ADMIN_THEATRES_READ_FAILED",
+        message: "Could not load theatres and rooms.",
+      },
+    });
+  }
+});
+
+app.post("/api/admin/theatres", async (req, res) => {
+  try {
+    const created = await createAdminTheatre(req.body);
+    return res.status(201).json(created);
+  } catch (error) {
+    if (error instanceof AdminServiceError) {
+      return res.status(error.status).json({
+        error: { code: error.code, message: error.message },
+      });
+    }
+    console.error("Could not create admin theatre:", error);
+    return res.status(500).json({
+      error: {
+        code: "ADMIN_THEATRE_CREATE_FAILED",
+        message: "Could not create theatre.",
+      },
+    });
+  }
+});
+
+app.put("/api/admin/theatres/:id", async (req, res) => {
+  const theatreId = Number(req.params.id);
+  if (
+    !/^\d+$/.test(req.params.id) ||
+    !Number.isSafeInteger(theatreId) ||
+    theatreId < 1
+  ) {
+    return res.status(400).json({
+      error: {
+        code: "INVALID_THEATRE_ID",
+        message: "Theatre ID must be a positive integer.",
+      },
+    });
+  }
+
+  try {
+    const updated = await updateAdminTheatre(theatreId, req.body);
+    return res.status(200).json(updated);
+  } catch (error) {
+    if (error instanceof AdminServiceError) {
+      return res.status(error.status).json({
+        error: { code: error.code, message: error.message },
+      });
+    }
+    console.error("Could not update admin theatre:", error);
+    return res.status(500).json({
+      error: {
+        code: "ADMIN_THEATRE_UPDATE_FAILED",
+        message: "Could not update theatre.",
+      },
+    });
+  }
+});
+
+app.delete("/api/admin/theatres/:id", async (req, res) => {
+  const theatreId = Number(req.params.id);
+  if (
+    !/^\d+$/.test(req.params.id) ||
+    !Number.isSafeInteger(theatreId) ||
+    theatreId < 1
+  ) {
+    return res.status(400).json({
+      error: {
+        code: "INVALID_THEATRE_ID",
+        message: "Theatre ID must be a positive integer.",
+      },
+    });
+  }
+
+  try {
+    const result = await deleteAdminTheatre(theatreId);
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof AdminServiceError) {
+      return res.status(error.status).json({
+        error: { code: error.code, message: error.message },
+      });
+    }
+    console.error("Could not delete admin theatre:", error);
+    return res.status(500).json({
+      error: {
+        code: "ADMIN_THEATRE_DELETE_FAILED",
+        message: "Could not delete theatre.",
+      },
+    });
+  }
+});
+
+app.post("/api/admin/theatres/:theatreId/rooms", async (req, res) => {
+  const theatreId = Number(req.params.theatreId);
+  if (
+    !/^\d+$/.test(req.params.theatreId) ||
+    !Number.isSafeInteger(theatreId) ||
+    theatreId < 1
+  ) {
+    return res.status(400).json({
+      error: {
+        code: "INVALID_THEATRE_ID",
+        message: "Theatre ID must be a positive integer.",
+      },
+    });
+  }
+
+  try {
+    const created = await createAdminRoom(theatreId, req.body);
+    return res.status(201).json(created);
+  } catch (error) {
+    if (error instanceof AdminServiceError) {
+      return res.status(error.status).json({
+        error: { code: error.code, message: error.message },
+      });
+    }
+    console.error("Could not create admin room:", error);
+    return res.status(500).json({
+      error: {
+        code: "ADMIN_ROOM_CREATE_FAILED",
+        message: "Could not create room.",
+      },
+    });
+  }
+});
+
+app.put("/api/admin/rooms/:id", async (req, res) => {
+  const roomId = Number(req.params.id);
+  if (
+    !/^\d+$/.test(req.params.id) ||
+    !Number.isSafeInteger(roomId) ||
+    roomId < 1
+  ) {
+    return res.status(400).json({
+      error: {
+        code: "INVALID_ROOM_ID",
+        message: "Room ID must be a positive integer.",
+      },
+    });
+  }
+
+  try {
+    const updated = await updateAdminRoom(roomId, req.body);
+    return res.status(200).json(updated);
+  } catch (error) {
+    if (error instanceof AdminServiceError) {
+      return res.status(error.status).json({
+        error: { code: error.code, message: error.message },
+      });
+    }
+    console.error("Could not update admin room:", error);
+    return res.status(500).json({
+      error: {
+        code: "ADMIN_ROOM_UPDATE_FAILED",
+        message: "Could not update room.",
+      },
+    });
+  }
+});
+
+app.delete("/api/admin/rooms/:id", async (req, res) => {
+  const roomId = Number(req.params.id);
+  if (
+    !/^\d+$/.test(req.params.id) ||
+    !Number.isSafeInteger(roomId) ||
+    roomId < 1
+  ) {
+    return res.status(400).json({
+      error: {
+        code: "INVALID_ROOM_ID",
+        message: "Room ID must be a positive integer.",
+      },
+    });
+  }
+
+  try {
+    const result = await deleteAdminRoom(roomId);
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof AdminServiceError) {
+      return res.status(error.status).json({
+        error: { code: error.code, message: error.message },
+      });
+    }
+    console.error("Could not delete admin room:", error);
+    return res.status(500).json({
+      error: {
+        code: "ADMIN_ROOM_DELETE_FAILED",
+        message: "Could not delete room.",
+      },
+    });
+  }
+});
+
+app.get("/api/admin/screenings", async (req, res) => {
+  try {
+    const screenings = await getAdminScreenings();
+    return res.json(screenings);
+  } catch (error) {
+    console.error("Could not load admin screenings from PostgreSQL:", error);
+    return res.status(500).json({
+      error: {
+        code: "ADMIN_SCREENINGS_READ_FAILED",
+        message: "Could not load scheduled screenings.",
+      },
+    });
+  }
+});
+
+app.post("/api/admin/screenings", async (req, res) => {
+  try {
+    const created = await createAdminScreening(req.body);
+    return res.status(201).json(created);
+  } catch (error) {
+    if (error instanceof AdminServiceError) {
+      return res.status(error.status).json({
+        error: { code: error.code, message: error.message },
+      });
+    }
+    console.error("Could not create admin screening:", error);
+    return res.status(500).json({
+      error: {
+        code: "ADMIN_SCREENING_CREATE_FAILED",
+        message: "Could not schedule screening.",
+      },
+    });
+  }
+});
+
+app.put("/api/admin/screenings/:id", async (req, res) => {
+  const screeningId = Number(req.params.id);
+  if (
+    !/^\d+$/.test(req.params.id) ||
+    !Number.isSafeInteger(screeningId) ||
+    screeningId < 1
+  ) {
+    return res.status(400).json({
+      error: {
+        code: "INVALID_SCREENING_ID",
+        message: "Screening ID must be a positive integer.",
+      },
+    });
+  }
+
+  try {
+    const updated = await updateAdminScreening(screeningId, req.body);
+    return res.status(200).json(updated);
+  } catch (error) {
+    if (error instanceof AdminServiceError) {
+      return res.status(error.status).json({
+        error: { code: error.code, message: error.message },
+      });
+    }
+    console.error("Could not update admin screening:", error);
+    return res.status(500).json({
+      error: {
+        code: "ADMIN_SCREENING_UPDATE_FAILED",
+        message: "Could not update screening.",
+      },
+    });
+  }
+});
+
+app.delete("/api/admin/screenings/:id", async (req, res) => {
+  const screeningId = Number(req.params.id);
+  if (
+    !/^\d+$/.test(req.params.id) ||
+    !Number.isSafeInteger(screeningId) ||
+    screeningId < 1
+  ) {
+    return res.status(400).json({
+      error: {
+        code: "INVALID_SCREENING_ID",
+        message: "Screening ID must be a positive integer.",
+      },
+    });
+  }
+
+  try {
+    const result = await deleteAdminScreening(screeningId);
+    return res.status(200).json(result);
+  } catch (error) {
+    if (error instanceof AdminServiceError) {
+      return res.status(error.status).json({
+        error: { code: error.code, message: error.message },
+      });
+    }
+    console.error("Could not delete admin screening:", error);
+    return res.status(500).json({
+      error: {
+        code: "ADMIN_SCREENING_DELETE_FAILED",
+        message: "Could not delete screening.",
       },
     });
   }

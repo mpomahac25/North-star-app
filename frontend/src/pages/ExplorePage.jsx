@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { ArrowUpRight, ChevronLeft } from "lucide-react";
+import { formatDate } from "../utils/dateFormat";
 import "./ExplorePage.css";
 
 function getVisiblePages(currentPage, totalPages) {
@@ -133,17 +134,17 @@ export default function ExplorePage() {
                         .slice(0, 3)
                         .map((screening) => {
                             const date = new Date(screening.startTime);
-
-                            const formattedTime = date.toLocaleString("en-GB", {
+                            const formattedDate = formatDate(screening.startTime, {
                                 timeZone: "Europe/Helsinki",
-                                day: "numeric",
-                                month: "short",
+                            });
+                            const formattedTime = date.toLocaleTimeString("en-GB", {
+                                timeZone: "Europe/Helsinki",
                                 hour: "2-digit",
                                 minute: "2-digit",
                                 hour12: false,
                             });
 
-                            return `${screening.city} ${formattedTime}`;
+                            return `${screening.city} ${formattedDate} ${formattedTime}`;
                         }),
                 }));
 

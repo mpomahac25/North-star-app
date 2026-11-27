@@ -1,4 +1,29 @@
-const USE_ADMIN_MOCK = true;
+const USE_ADMIN_MOCK = false; // Set to true to use mock data for admin dashboard
+
+const MOCK_THEATRES = [
+    {
+        id: 1,
+        name: "Rio Cinema Oulu",
+        city: "Oulu",
+        address: "Hallituskatu 11",
+        timezone: "Europe/Helsinki",
+        rooms: [
+            { id: 1, theatreId: 1, name: "Room 1", capacity: 100 },
+            { id: 2, theatreId: 1, name: "Room 2", capacity: 200 },
+        ],
+    },
+    {
+        id: 2,
+        name: "Rio Cinema Tampere",
+        city: "Tampere",
+        address: "Hämeenkatu 14",
+        timezone: "Europe/Helsinki",
+        rooms: [
+            { id: 3, theatreId: 2, name: "Room 1", capacity: 100 },
+            { id: 4, theatreId: 2, name: "Room 2", capacity: 200 },
+        ],
+    },
+];
 
 const MOCK_LIBRARY_MOVIES = [
     {
@@ -76,7 +101,7 @@ const MOCK_SALES_SCREENINGS = [
         roomName: "Room 1",
         capacity: 100,
         dateKey: "today",
-        dateLabel: "16 Nov 2026",
+        dateLabel: "16.11.2026",
         showtime: "18:00",
         seatsSold: 68,
         revenue: 884.0,
@@ -89,7 +114,7 @@ const MOCK_SALES_SCREENINGS = [
         roomName: "Room 2",
         capacity: 200,
         dateKey: "today",
-        dateLabel: "16 Nov 2026",
+        dateLabel: "16.11.2026",
         showtime: "20:00",
         seatsSold: 46,
         revenue: 601.0,
@@ -102,7 +127,7 @@ const MOCK_SALES_SCREENINGS = [
         roomName: "Room 2",
         capacity: 200,
         dateKey: "tomorrow",
-        dateLabel: "17 Nov 2026",
+        dateLabel: "17.11.2026",
         showtime: "14:00",
         seatsSold: 32,
         revenue: 478.4,
@@ -164,9 +189,52 @@ async function apiRequest(url, options = {}) {
     return data;
 }
 
+function getDateKeyFromIso(isoDate) {
+    if (!isoDate) return "all";
+    const now = new Date();
+    const toIso = (d) =>
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+    const todayStr = toIso(now);
+    const tomorrow = new Date(now);
+    tomorrow.setDate(now.getDate() + 1);
+    const tomorrowStr = toIso(tomorrow);
+
+    if (isoDate === todayStr) return "today";
+    if (isoDate === tomorrowStr) return "tomorrow";
+    return isoDate;
+}
+
+function normalizeOmdbSearchItem(item) {
+    if (!item || typeof item !== "object") return null;
+    const yearMatch = /\b(\d{4})\b/.exec(String(item.Year || item.releaseYear || ""));
+    const runtimeMatch = /^\s*(\d+)\s+min\b/i.exec(String(item.Runtime || ""));
+    const directors = Array.isArray(item.directors)
+        ? item.directors
+        : typeof item.Director === "string" && item.Director !== "N/A"
+          ? item.Director.split(",")
+                .map((d) => d.trim())
+                .filter(Boolean)
+          : [];
+
+    return {
+        id: item.id ?? null,
+        imdbId: item.imdbID || item.imdbId || "",
+        title: item.Title || item.title || "",
+        releaseYear: yearMatch ? Number(yearMatch[1]) : null,
+        durationMinutes: item.durationMinutes ?? (runtimeMatch ? Number(runtimeMatch[1]) : null),
+        directors,
+        posterUrl:
+            (item.Poster && item.Poster !== "N/A" ? item.Poster : null) ||
+            item.posterUrl ||
+            "https://placehold.co/300x450/18181b/d4af37?text=No+Poster",
+    };
+}
+
 export async function fetchAdminDashboardInitialData() {
     if (USE_ADMIN_MOCK) {
         return {
+            theatres: structuredClone(MOCK_THEATRES),
             libraryMovies: structuredClone(MOCK_LIBRARY_MOVIES),
             omdbCatalog: structuredClone(MOCK_OMDB_CATALOG),
             salesScreenings: structuredClone(MOCK_SALES_SCREENINGS),
@@ -174,18 +242,100 @@ export async function fetchAdminDashboardInitialData() {
         };
     }
 
-    const [sales, movies, screenings] = await Promise.all([
+    const [sales, movies, screenings, theatres] = await Promise.all([
         apiRequest("/api/admin/sales"),
         apiRequest("/api/movies?page=1&limit=100"),
         apiRequest("/api/admin/screenings"),
+        apiRequest("/api/admin/theatres"),
     ]);
 
+    const rawSales = Array.isArray(sales) ? sales : sales.items || [];
+    const rawScreenings = Array.isArray(screenings) ? screenings : screenings.items || [];
+    const rawTheatres = Array.isArray(theatres) ? theatres : theatres.items || [];
+
     return {
+        theatres: rawTheatres,
         libraryMovies: movies.items || [],
         omdbCatalog: [],
-        salesScreenings: sales.items || [],
-        scheduledScreenings: screenings.items || [],
+        salesScreenings: rawSales.map((item) => ({
+            ...item,
+            dateKey: item.dateKey || getDateKeyFromIso(item.date),
+        })),
+        scheduledScreenings: rawScreenings,
     };
+}
+
+export async function createAdminTheatre(theatrePayload) {
+    if (USE_ADMIN_MOCK) {
+        return { ...theatrePayload, id: Date.now(), rooms: [] };
+    }
+    return apiRequest("/api/admin/theatres", {
+        method: "POST",
+        body: JSON.stringify(theatrePayload),
+    });
+}
+
+export async function updateAdminTheatre(id, theatrePayload) {
+    if (USE_ADMIN_MOCK) {
+        return { ...theatrePayload, id, rooms: [] };
+    }
+    return apiRequest(`/api/admin/theatres/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        body: JSON.stringify(theatrePayload),
+    });
+}
+
+export async function deleteAdminTheatre(id) {
+    if (USE_ADMIN_MOCK) {
+        return { deleted: true, id };
+    }
+    return apiRequest(`/api/admin/theatres/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+    });
+}
+
+export async function createAdminRoom(theatreId, roomPayload) {
+    if (USE_ADMIN_MOCK) {
+        return { ...roomPayload, id: Date.now(), theatreId };
+    }
+    return apiRequest(`/api/admin/theatres/${encodeURIComponent(theatreId)}/rooms`, {
+        method: "POST",
+        body: JSON.stringify(roomPayload),
+    });
+}
+
+export async function updateAdminRoom(id, roomPayload) {
+    if (USE_ADMIN_MOCK) {
+        return { ...roomPayload, id };
+    }
+    return apiRequest(`/api/admin/rooms/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        body: JSON.stringify(roomPayload),
+    });
+}
+
+export async function deleteAdminRoom(id) {
+    if (USE_ADMIN_MOCK) {
+        return { deleted: true, id };
+    }
+    return apiRequest(`/api/admin/rooms/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+    });
+}
+
+export async function searchAdminOmdbMovies(query) {
+    if (USE_ADMIN_MOCK) {
+        const cleaned = query.trim().toLowerCase();
+        return MOCK_OMDB_CATALOG.filter(
+            (m) =>
+                m.title.toLowerCase().includes(cleaned) ||
+                (m.imdbId && m.imdbId.toLowerCase().includes(cleaned)),
+        );
+    }
+
+    const data = await apiRequest(`/api/admin/movies/search?q=${encodeURIComponent(query.trim())}`);
+    const list = Array.isArray(data?.Search) ? data.Search : [];
+    return list.map(normalizeOmdbSearchItem).filter(Boolean);
 }
 
 export async function importMovieFromOmdb(moviePayload) {
